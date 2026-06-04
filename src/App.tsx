@@ -27,7 +27,7 @@ export default function App() {
   const [edgeFrom, setEdgeFrom] = useState('')
   const [edgeTo, setEdgeTo] = useState('')
   const [edgeWeight, setEdgeWeight] = useState('1')
-  const [editingEdge, setEditingEdge] = useState<{ from: string; to: string } | null>(null)
+  const [selectedEdge, setSelectedEdge] = useState<{ originalFrom: string; originalTo: string; from: string; to: string; weight: string } | null>(null)
 
   const directed = useMemo(() => problem === 'max-flow', [problem])
 
@@ -62,24 +62,13 @@ export default function App() {
       return
     }
 
-    if (editingEdge) {
-      setEdges(prev =>
-        prev.map(e =>
-          e.from === editingEdge.from && e.to === editingEdge.to
-            ? { from, to, weight }
-            : e
-        )
-      )
-      setEditingEdge(null)
-    } else {
-      setEdges(prev => [...prev, { from, to, weight }])
-    }
+    setEdges(prev => [...prev, { from, to, weight }])
     setEdgeFrom('')
     setEdgeTo('')
     setEdgeWeight('1')
     setError(null)
     setResult(null)
-  }, [edgeFrom, edgeTo, edgeWeight, editingEdge])
+  }, [edgeFrom, edgeTo, edgeWeight])
 
   const handleDeleteNode = useCallback((id: string) => {
     setNodes(prev => prev.filter(n => n.id !== id))
@@ -91,23 +80,80 @@ export default function App() {
     const idx = edges.findIndex(e => e.from === from && e.to === to)
     if (idx !== -1) {
       setEdges(prev => prev.filter((_, i) => i !== idx))
-      if (editingEdge?.from === from && editingEdge?.to === to) {
-        setEditingEdge(null)
-        setEdgeFrom('')
-        setEdgeTo('')
-        setEdgeWeight('1')
+      if (selectedEdge?.originalFrom === from && selectedEdge?.originalTo === to) {
+        setSelectedEdge(null)
       }
       setResult(null)
     }
-  }, [edges, editingEdge])
+  }, [edges, selectedEdge])
 
   const handleEdgeClick = useCallback((from: string, to: string, weight: number) => {
-    setEdgeFrom(from)
-    setEdgeTo(to)
-    setEdgeWeight(String(weight))
-    setEditingEdge({ from, to })
+    setSelectedEdge({
+      originalFrom: from,
+      originalTo: to,
+      from,
+      to,
+      weight: String(weight),
+    })
     setError(null)
   }, [])
+
+  const handleClearSelectedEdge = useCallback(() => {
+    setSelectedEdge(null)
+  }, [])
+
+  const edgeNodeSuggestions = useMemo(() => {
+    const query = edgeFrom.trim().toLowerCase()
+    return nodeOptions.filter(option => option.value.toLowerCase().includes(query)).slice(0, 6)
+  }, [edgeFrom, nodeOptions])
+
+  const edgeToSuggestions = useMemo(() => {
+    const query = edgeTo.trim().toLowerCase()
+    return nodeOptions.filter(option => option.value.toLowerCase().includes(query)).slice(0, 6)
+  }, [edgeTo, nodeOptions])
+
+  const handleUpdateSelectedEdge = useCallback(() => {
+    if (!selectedEdge) return
+
+    const from = selectedEdge.from.trim()
+    const to = selectedEdge.to.trim()
+    const weight = parseFloat(selectedEdge.weight)
+
+    if (!from || !to) return
+    if (isNaN(weight) || weight <= 0) {
+      setError('El peso/costo debe ser un número positivo')
+      return
+    }
+    if (from === to) {
+      setError('No se puede conectar un punto consigo mismo')
+      return
+    }
+
+    setEdges(prev =>
+      prev.map(e =>
+        e.from === selectedEdge.originalFrom && e.to === selectedEdge.originalTo
+          ? { from, to, weight }
+          : e
+      )
+    )
+    setSelectedEdge({
+      originalFrom: from,
+      originalTo: to,
+      from,
+      to,
+      weight: String(weight),
+    })
+    setError(null)
+    setResult(null)
+  }, [selectedEdge])
+
+  const handleDeleteSelectedEdge = useCallback(() => {
+    if (!selectedEdge) return
+    const { originalFrom, originalTo } = selectedEdge
+    setEdges(prev => prev.filter(e => !(e.from === originalFrom && e.to === originalTo)))
+    setSelectedEdge(null)
+    setResult(null)
+  }, [selectedEdge])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -231,6 +277,7 @@ export default function App() {
             onDeleteNode={handleDeleteNode}
             onDeleteEdge={handleDeleteEdge}
             onEdgeClick={handleEdgeClick}
+            onCanvasClick={handleClearSelectedEdge}
           />
 
           <div className="graph-inputs">
@@ -251,7 +298,7 @@ export default function App() {
             </div>
 
             <div className="input-section">
-              <h4>{editingEdge ? 'Editar conexión' : 'Agregar conexión'}</h4>
+              <h4>Agregar conexión</h4>
               <div className="input-row">
                 <input
                   id="edge-from"
@@ -285,21 +332,55 @@ export default function App() {
                   step="any"
                   className="weight-input"
                 />
-                <button onClick={handleAddEdge}>{editingEdge ? 'Actualizar' : 'Añadir'}</button>
-                {editingEdge && (
-                  <button className="btn-cancel" onClick={() => { setEditingEdge(null); setEdgeFrom(''); setEdgeTo(''); setEdgeWeight('1') }}>
-                    ✕
-                  </button>
-                )}
+                <button onClick={handleAddEdge}>Añadir</button>
               </div>
               <datalist id="nodes-list">
                 {nodeOptions.map(o => <option key={o.value} value={o.value} />)}
               </datalist>
-              {editingEdge && (
-                <p className="edit-hint">Conectaste "{editingEdge.from}" → "{editingEdge.to}". Cambiá los valores y presioná Actualizar.</p>
+            </div>
+
+            {selectedEdge && (
+              <div className="input-section edge-edit-section">
+                <h4>Editar / eliminar conexión seleccionada</h4>
+                <div className="input-row edge-edit-row">
+                  <input
+                    type="text"
+                    placeholder="Desde"
+                    value={selectedEdge.from}
+                    onChange={e => setSelectedEdge(prev => prev ? { ...prev, from: e.target.value } : prev)}
+                    onKeyDown={e => e.key === 'Enter' && handleUpdateSelectedEdge()}
+                    maxLength={20}
+                    list="nodes-list"
+                  />
+                  <span className="arrow">{directed ? '→' : '↔'}</span>
+                  <input
+                    type="text"
+                    placeholder="Hasta"
+                    value={selectedEdge.to}
+                    onChange={e => setSelectedEdge(prev => prev ? { ...prev, to: e.target.value } : prev)}
+                    onKeyDown={e => e.key === 'Enter' && handleUpdateSelectedEdge()}
+                    maxLength={20}
+                    list="nodes-list"
+                  />
+                  <input
+                    type="number"
+                    placeholder="Peso"
+                    value={selectedEdge.weight}
+                    onChange={e => setSelectedEdge(prev => prev ? { ...prev, weight: e.target.value } : prev)}
+                    onKeyDown={e => e.key === 'Enter' && handleUpdateSelectedEdge()}
+                    min="0.1"
+                    step="any"
+                    className="weight-input"
+                  />
+                  <div className="edge-actions">
+                    <button onClick={handleUpdateSelectedEdge}>Actualizar</button>
+                    <button className="btn-cancel" onClick={handleDeleteSelectedEdge}>Eliminar</button>
+                  </div>
+                </div>
+                <p className="edit-hint">Seleccionaste "{selectedEdge.originalFrom}" → "{selectedEdge.originalTo}". Editá los campos y guardá los cambios, o eliminá la conexión.</p>
+              </div>
               )}
             </div>
-          </div>
         </div>
 
         <div className="panel controls-panel">

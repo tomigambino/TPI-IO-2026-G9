@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react'
+import { useRef, useEffect, useCallback, useState } from 'react'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
 import type { GraphNode, GraphEdge } from '../types'
@@ -6,6 +6,15 @@ import type { GraphNode, GraphEdge } from '../types'
 const DEFAULT_EDGE_COLOR = '#334155'
 const HIGHLIGHT_COLOR = '#16a34a'
 const NODE_CYAN = '#06B6D4'
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value))
+
+const getNodeRadius = (label: string, viewportScale: number, nodeCount: number) => {
+  const length = label.trim().length
+  const densityScale = nodeCount >= 14 ? 0.82 : nodeCount >= 10 ? 0.88 : nodeCount >= 6 ? 0.94 : 1
+  const baseRadius = length <= 1 ? 24 : length <= 2 ? 28 : length <= 4 ? 32 : 38
+  return clamp(Math.round(baseRadius * viewportScale * densityScale), 20, 42)
+}
 
 interface Props {
   nodes: GraphNode[]
@@ -16,13 +25,16 @@ interface Props {
   onDeleteNode?: (id: string) => void
   onDeleteEdge?: (from: string, to: string) => void
   onEdgeClick?: (from: string, to: string, weight: number) => void
+  onCanvasClick?: () => void
 }
 
-export default function GraphEditor({ nodes, edges, directed, highlightEdges, highlightNodes, onDeleteNode, onDeleteEdge, onEdgeClick }: Props) {
+export default function GraphEditor({ nodes, edges, directed, highlightEdges, highlightNodes, onDeleteNode, onDeleteEdge, onEdgeClick, onCanvasClick }: Props) {
   const containerRef = useRef<HTMLDivElement>(null)
   const networkRef = useRef<Network | null>(null)
   const nodesDataSet = useRef(new DataSet<Record<string, unknown>>())
   const edgesDataSet = useRef(new DataSet<Record<string, unknown>>())
+  const [viewportScale, setViewportScale] = useState(0.9)
+  const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const onEdgeClickRef = useRef(onEdgeClick)
   onEdgeClickRef.current = onEdgeClick
 
@@ -30,48 +42,149 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
   useEffect(() => {
     if (!containerRef.current) return
 
+    const renderCircleNode = ({ ctx, x, y, state, style, label }: {
+      ctx: CanvasRenderingContext2D
+      x: number
+      y: number
+      state: { selected: boolean; hover: boolean }
+      style: { size: number; backgroundColor?: string; borderColor?: string; borderWidth?: number }
+      label: string
+    }) => {
+      const radius = style.size
+      const labelText = String(label || '').trim()
+      const labelLength = labelText.length
+      const background = state.selected
+        ? '#0369A1'
+        : state.hover
+          ? '#0284C7'
+          : (style.backgroundColor || NODE_CYAN)
+      const border = state.selected
+        ? '#E0F2FE'
+        : state.hover
+          ? '#BAE6FD'
+          : (style.borderColor || NODE_CYAN)
+      const borderWidth = state.selected ? (style.borderWidth ?? 2) + 2 : style.borderWidth ?? 2
+      const fontSize = labelLength <= 1
+        ? Math.max(20, Math.round(radius * 0.88))
+        : labelLength <= 2
+          ? Math.max(17, Math.round(radius * 0.75))
+          : labelLength <= 4
+            ? Math.max(15, Math.round(radius * 0.62))
+            : Math.max(14, Math.round(radius * 0.55))
+
+      ctx.save()
+      ctx.beginPath()
+      ctx.arc(x, y, radius, 0, Math.PI * 2)
+      ctx.fillStyle = background
+      ctx.fill()
+      ctx.lineWidth = borderWidth
+      ctx.strokeStyle = border
+      ctx.stroke()
+
+      ctx.fillStyle = '#FFFFFF'
+      ctx.textAlign = 'center'
+      ctx.textBaseline = 'middle'
+      ctx.font = `${labelLength <= 1 ? 700 : 600} ${fontSize}px Arial`
+
+      const textLines = String(label || '').split('\n')
+      const lineHeight = fontSize + 2
+      const totalHeight = (textLines.length - 1) * lineHeight
+      const visualOffset = Math.max(1, Math.round(fontSize * 0.08))
+
+      textLines.forEach((line, index) => {
+        ctx.fillText(line, x, y + visualOffset - totalHeight / 2 + index * lineHeight)
+      })
+
+      ctx.restore()
+
+      return {
+        drawNode() {},
+        nodeDimensions: { width: radius * 2 + borderWidth * 2, height: radius * 2 + borderWidth * 2 },
+      }
+    }
+
     const options = {
       physics: { enabled: true, solver: 'forceAtlas2Based', stabilization: { iterations: 100 } },
       edges: {
-        font: { size: 13, color: '#06B6D4', align: 'middle' as const, background: '#1E293B', strokeWidth: 0 },
-        width: 2,
+        font: { size: 15, color: '#E0F2FE', align: 'middle' as const, background: '#0F172A', strokeWidth: 3, strokeColor: '#0F172A' },
+        width: 3,
         color: { color: DEFAULT_EDGE_COLOR, highlight: DEFAULT_EDGE_COLOR },
         arrows: { to: { enabled: false } },
         smooth: { enabled: true, type: 'continuous', roundness: 0.5 },
       },
       nodes: {
-        font: { size: 16, color: '#F8FAFC', face: 'Arial', strokeWidth: 0 },
+        shape: 'custom' as const,
+        ctxRenderer: renderCircleNode,
         borderWidth: 2,
         color: {
           background: NODE_CYAN,
           border: NODE_CYAN,
-          highlight: { background: '#06B6D4', border: '#F8FAFC' },
+          hover: { background: '#0284C7', border: '#BAE6FD' },
+          highlight: { background: '#0369A1', border: '#E0F2FE' },
         },
-        shape: 'ellipse' as const,
-        size: 35,
-        margin: { top: 8, right: 8, bottom: 8, left: 8 },
+        size: 36,
+        margin: { top: 0, right: 0, bottom: 0, left: 0 },
+        chosen: false,
+        shadow: {
+          enabled: true,
+          color: 'rgba(15, 23, 42, 0.28)',
+          size: 8,
+          x: 0,
+          y: 4,
+        },
       },
       interaction: {
         hover: true,
-        selectConnectedEdges: true,
+        selectConnectedEdges: false,
       },
       manipulation: false,
     }
 
     networkRef.current = new Network(containerRef.current, { nodes: nodesDataSet.current, edges: edgesDataSet.current }, options)
 
+    const updateViewportScale = () => {
+      const element = containerRef.current
+      if (!element) return
+      const width = element.clientWidth || 800
+      const height = element.clientHeight || 360
+      const nextScale = clamp(Math.min(width / 900, height / 360), 0.82, 0.98)
+      setViewportScale(nextScale)
+    }
+
+    updateViewportScale()
+
+    const resizeObserver = new ResizeObserver(updateViewportScale)
+    resizeObserver.observe(containerRef.current)
+
     networkRef.current.on('click', (params) => {
-      if (!onEdgeClickRef.current) return
+      if (params.nodes.length > 0) {
+        setSelectedNodeId(String(params.nodes[0]))
+      } else {
+        setSelectedNodeId(null)
+      }
+
       if (params.edges.length > 0) {
+        if (!onEdgeClickRef.current) return
         const edgeId = String(params.edges[0])
         const edge = edgesDataSet.current.get(edgeId) as { from: string; to: string; label?: string } | null
         if (edge) {
           onEdgeClickRef.current(edge.from, edge.to, parseFloat(edge.label || '0'))
         }
+      } else if (params.nodes.length === 0) {
+        onCanvasClick?.()
       }
     })
 
+    networkRef.current.on('deselectEdge', () => {
+      onCanvasClick?.()
+    })
+
+    networkRef.current.on('deselectNode', () => {
+      setSelectedNodeId(null)
+    })
+
     return () => {
+      resizeObserver.disconnect()
       networkRef.current?.destroy()
       networkRef.current = null
     }
@@ -82,10 +195,11 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
     const items = nodes.map(n => ({
       id: n.id,
       label: n.label,
+      size: getNodeRadius(n.label, viewportScale, nodes.length),
     }))
     nodesDataSet.current.clear()
     nodesDataSet.current.add(items as unknown as Record<string, unknown>[])
-  }, [nodes])
+  }, [nodes, viewportScale])
 
   // Sync edges
   useEffect(() => {
@@ -104,8 +218,8 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
   useEffect(() => {
     if (!networkRef.current) return
 
-    const defaultEdge = { color: { color: DEFAULT_EDGE_COLOR, highlight: DEFAULT_EDGE_COLOR }, width: 2 }
-    const highlightedEdge = { color: { color: HIGHLIGHT_COLOR, highlight: HIGHLIGHT_COLOR }, width: 4 }
+    const defaultEdge = { color: { color: DEFAULT_EDGE_COLOR, highlight: DEFAULT_EDGE_COLOR }, width: 3 }
+    const highlightedEdge = { color: { color: HIGHLIGHT_COLOR, highlight: HIGHLIGHT_COLOR }, width: 5 }
 
     edgesDataSet.current.forEach((edge: Record<string, unknown>) => {
       const e = edge as unknown as { id: string }
@@ -147,30 +261,26 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
   }, [nodes.length, edges.length])
 
   const handleDelete = useCallback(() => {
-    if (!networkRef.current) return
-    const selNodes = networkRef.current.getSelectedNodes()
-    const selEdges = networkRef.current.getSelectedEdges()
+    if (!networkRef.current || !selectedNodeId) return
+    networkRef.current.deleteSelected()
+    onDeleteNode?.(selectedNodeId)
+    setSelectedNodeId(null)
+  }, [onDeleteNode, selectedNodeId])
 
-    if (selNodes.length > 0) {
-      const id = String(selNodes[0])
-      networkRef.current.deleteSelected()
-      onDeleteNode?.(id)
-    } else if (selEdges.length > 0) {
-      const edgeId = String(selEdges[0])
-      const edge = edgesDataSet.current.get(edgeId) as unknown as { from: string; to: string } | null
-      if (edge) {
-        networkRef.current.deleteSelected()
-        onDeleteEdge?.(edge.from, edge.to)
-      }
+  useEffect(() => {
+    if (selectedNodeId && !nodes.some(node => node.id === selectedNodeId)) {
+      setSelectedNodeId(null)
     }
-  }, [onDeleteNode, onDeleteEdge])
+  }, [nodes, selectedNodeId])
 
   return (
     <div className="graph-editor">
       <div ref={containerRef} className="graph-canvas" />
-      <button className="btn-delete" onClick={handleDelete} title="Seleccioná un nodo o conexión y presioná Eliminar">
-        Eliminar seleccionado
-      </button>
+      {selectedNodeId && (
+        <button className="btn-delete" onClick={handleDelete} title="Presioná para eliminar el nodo seleccionado">
+          Eliminar seleccionado
+        </button>
+      )}
     </div>
   )
 }

@@ -152,7 +152,7 @@ body {
 .graph-inputs {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 14px;
 }
 
 .input-section h4 {
@@ -164,8 +164,9 @@ body {
 
 .input-row {
   display: flex;
-  gap: 6px;
+  gap: 10px;
   align-items: center;
+  flex-wrap: wrap;
 }
 
 .input-row input {
@@ -216,6 +217,25 @@ body {
   transition: background 0.15s;
 }
 
+.input-row > button {
+  margin-left: 10px;
+}
+
+.edge-edit-row {
+  align-items: center;
+}
+
+.edge-actions {
+  display: flex;
+  gap: 8px;
+  margin-left: 14px;
+  flex-shrink: 0;
+}
+
+.edge-actions .btn-cancel {
+  white-space: nowrap;
+}
+
 .input-row button:hover {
   background: #0891B2;
 }
@@ -238,6 +258,11 @@ body {
   color: #64748B;
   margin-top: 4px;
   font-style: italic;
+}
+
+.edge-edit-section {
+  padding-top: 4px;
+  border-top: 1px solid #334155;
 }
 
 /* Controls panel */
