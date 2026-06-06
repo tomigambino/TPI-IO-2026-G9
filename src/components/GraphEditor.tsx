@@ -109,12 +109,12 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
         font: { size: 15, color: '#E0F2FE', align: 'middle' as const, background: '#0F172A', strokeWidth: 3, strokeColor: '#0F172A' },
         width: 3,
         color: { color: DEFAULT_EDGE_COLOR, highlight: DEFAULT_EDGE_COLOR },
-        arrows: { to: { enabled: false } },
+        arrows: { to: { enabled: false, scaleFactor: 0.65 } },
+        arrowStrikethrough: false,
         smooth: { enabled: true, type: 'continuous', roundness: 0.5 },
       },
       nodes: {
-        shape: 'custom' as const,
-        ctxRenderer: renderCircleNode,
+        shape: 'circle' as const,
         borderWidth: 2,
         color: {
           background: NODE_CYAN,
@@ -192,11 +192,30 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
 
   // Sync nodes
   useEffect(() => {
-    const items = nodes.map(n => ({
-      id: n.id,
-      label: n.label,
-      size: getNodeRadius(n.label, viewportScale, nodes.length),
-    }))
+    const items = nodes.map(n => {
+      const radius = getNodeRadius(n.label, viewportScale, nodes.length)
+      const labelLength = n.label.trim().length
+      const fontSize = labelLength <= 1
+        ? Math.max(20, Math.round(radius * 0.88))
+        : labelLength <= 2
+          ? Math.max(17, Math.round(radius * 0.75))
+          : labelLength <= 4
+            ? Math.max(15, Math.round(radius * 0.62))
+            : Math.max(14, Math.round(radius * 0.55))
+
+      return {
+        id: n.id,
+        label: n.label,
+        widthConstraint: { minimum: radius * 2, maximum: radius * 2 },
+        heightConstraint: { minimum: radius * 2, valign: 'middle' },
+        font: {
+          size: fontSize,
+          color: '#FFFFFF',
+          face: 'Arial',
+          bold: labelLength <= 1
+        }
+      }
+    })
     nodesDataSet.current.clear()
     nodesDataSet.current.add(items as unknown as Record<string, unknown>[])
   }, [nodes, viewportScale])
@@ -208,7 +227,7 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
       from: e.from,
       to: e.to,
       label: String(e.weight),
-      arrows: directed ? { to: { enabled: true } } : undefined,
+      arrows: directed ? { to: { enabled: true, scaleFactor: 0.65 } } : undefined,
     }))
     edgesDataSet.current.clear()
     edgesDataSet.current.add(items as unknown as Record<string, unknown>[])
