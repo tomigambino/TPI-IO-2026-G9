@@ -3,6 +3,7 @@ import type { ProblemType, GraphNode, GraphEdge, ResultData } from './types'
 import { graphToDot, parseDotResult, buildNodeOptions, PROBLEM_LABELS } from './utils'
 import ProblemSelector from './components/ProblemSelector'
 import GraphEditor from './components/GraphEditor'
+import ConfirmationModal from './components/ConfirmationModal'
 import { Resolver } from '../core/Resolver'
 import { DijkstraStrategyAlgorithm } from '../core/DijkstraStrategyAlgorithm'
 import { KruskalStrategyAlgorithm } from '../core/KruskalStrategyAlgorithm'
@@ -21,6 +22,7 @@ export default function App() {
   const [resultEdges, setResultEdges] = useState<string[]>([])
   const [resultNodes, setResultNodes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
+  const [isResetModalOpen, setIsResetModalOpen] = useState(false)
 
   // Input fields
   const [newNodeName, setNewNodeName] = useState('')
@@ -257,6 +259,11 @@ export default function App() {
     setError(null)
   }, [])
 
+  const handleConfirmReset = useCallback(() => {
+    handleReset()
+    setIsResetModalOpen(false)
+  }, [handleReset])
+
   return (
     <div className="app">
       <header className="app-header">
@@ -408,7 +415,7 @@ export default function App() {
             Resolver
           </button>
 
-          <button className="btn-reset" onClick={handleReset}>
+          <button className="btn-reset" onClick={() => setIsResetModalOpen(true)}>
             Empezar de nuevo
           </button>
 
@@ -438,6 +445,13 @@ export default function App() {
           )}
         </div>
       </div>
+      <ConfirmationModal
+        isOpen={isResetModalOpen}
+        onClose={() => setIsResetModalOpen(false)}
+        onConfirm={handleConfirmReset}
+        title="¿Borrar todo?"
+        message="Estás a punto de eliminar todos los puntos y conexiones que armaste. Esto no se puede deshacer."
+      />
     </div>
   )
 }
