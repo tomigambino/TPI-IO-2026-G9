@@ -114,7 +114,8 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
         smooth: { enabled: true, type: 'continuous', roundness: 0.5 },
       },
       nodes: {
-        shape: 'circle' as const,
+        shape: 'custom' as const,
+        ctxRenderer: renderCircleNode,
         borderWidth: 2,
         color: {
           background: NODE_CYAN,
@@ -206,6 +207,7 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
       return {
         id: n.id,
         label: n.label,
+        size: radius,
         widthConstraint: { minimum: radius * 2, maximum: radius * 2 },
         heightConstraint: { minimum: radius * 2, valign: 'middle' },
         font: {
