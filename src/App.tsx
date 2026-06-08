@@ -28,7 +28,7 @@ export default function App() {
   const [newNodeName, setNewNodeName] = useState('')
   const [edgeFrom, setEdgeFrom] = useState('')
   const [edgeTo, setEdgeTo] = useState('')
-  const [edgeWeight, setEdgeWeight] = useState('1')
+  const [edgeWeight, setEdgeWeight] = useState('')
   const [selectedEdge, setSelectedEdge] = useState<{ originalFrom: string; originalTo: string; from: string; to: string; weight: string } | null>(null)
 
   const directed = useMemo(() => problem === 'max-flow', [problem])
@@ -56,7 +56,7 @@ export default function App() {
     const weight = parseFloat(edgeWeight)
     if (!from || !to) return
     if (isNaN(weight) || weight <= 0) {
-      setError('El peso/costo debe ser un número positivo')
+      setError('El costo debe ser un número positivo')
       return
     }
     if (from === to) {
@@ -67,9 +67,10 @@ export default function App() {
     setEdges(prev => [...prev, { from, to, weight }])
     setEdgeFrom('')
     setEdgeTo('')
-    setEdgeWeight('1')
+    setEdgeWeight('')
     setError(null)
     setResult(null)
+    document.getElementById('edge-from')?.focus()
   }, [edgeFrom, edgeTo, edgeWeight])
 
   const handleDeleteNode = useCallback((id: string) => {
@@ -123,7 +124,7 @@ export default function App() {
 
     if (!from || !to) return
     if (isNaN(weight) || weight <= 0) {
-      setError('El peso/costo debe ser un número positivo')
+      setError('El costo debe ser un número positivo')
       return
     }
     if (from === to) {
@@ -160,8 +161,18 @@ export default function App() {
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
       const target = e.target as HTMLElement
-      if (target.id === 'node-input') handleAddNode()
-      else if (target.id === 'edge-from' || target.id === 'edge-to' || target.id === 'edge-weight') handleAddEdge()
+      if (target.id === 'node-input') {
+        handleAddNode()
+      } else if (target.id === 'edge-from') {
+        e.preventDefault()
+        document.getElementById('edge-to')?.focus()
+      } else if (target.id === 'edge-to') {
+        e.preventDefault()
+        document.getElementById('edge-weight')?.focus()
+      } else if (target.id === 'edge-weight') {
+        e.preventDefault()
+        handleAddEdge()
+      }
     }
   }, [handleAddNode, handleAddEdge])
 
@@ -339,7 +350,7 @@ export default function App() {
                 <input
                   id="edge-weight"
                   type="number"
-                  placeholder="Peso"
+                  placeholder="Costo"
                   value={edgeWeight}
                   onChange={e => setEdgeWeight(e.target.value)}
                   onKeyDown={handleKeyDown}
@@ -379,7 +390,7 @@ export default function App() {
                   />
                   <input
                     type="number"
-                    placeholder="Peso"
+                    placeholder="Costo"
                     value={selectedEdge.weight}
                     onChange={e => setSelectedEdge(prev => prev ? { ...prev, weight: e.target.value } : prev)}
                     onKeyDown={e => e.key === 'Enter' && handleUpdateSelectedEdge()}
