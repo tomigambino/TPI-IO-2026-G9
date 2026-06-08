@@ -182,8 +182,8 @@ export default function App() {
     setResultEdges([])
     setResultNodes([])
 
-    if (nodes.length === 0) {
-      setError('Primero agregá al menos un punto al mapa')
+    if (nodes.length < 2) {
+      setError('Agregá al menos dos puntos al mapa')
       return
     }
     if (edges.length === 0) {
@@ -191,6 +191,10 @@ export default function App() {
       return
     }
     if (needsStartEnd) {
+      if (!startNode && !endNode) {
+        setError('Seleccioná los puntos de origen y destino')
+        return
+      }
       if (!startNode) {
         setError('Seleccioná el punto de origen')
         return
