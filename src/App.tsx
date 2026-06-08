@@ -209,10 +209,10 @@ export default function App() {
           const steps = parsed.edges.map((e, i) => `${i + 1}. De "${e.from}" a "${e.to}" (costo: ${e.weight})`).join('\n')
           const total = parsed.edges.reduce((s, e) => s + e.weight, 0)
           setResult({
-            title: 'Camino mas corto encontrado',
-            body: `Para ir de "${startNode}" a "${endNode}" de la forma mas barata o rapida, segui esta ruta:\n\n${steps}`,
+            title: 'Camino más corto encontrado',
+            body: `Para ir de "${startNode}" a "${endNode}" de la forma más barata o rápida, seguí esta ruta:\n\n${steps}`,
             total: `Costo total del viaje: ${total}`,
-            note: 'Esta es la mejor ruta posible. Cualquier otro camino tendria un costo igual o mayor.',
+            note: 'Esta es la mejor ruta posible. Cualquier otro camino tendrá un costo igual o mayor.',
           })
           break
         }
@@ -222,23 +222,31 @@ export default function App() {
           const parsed = parseDotResult(res)
           setResultEdges(parsed.edges.map(e => `${e.from}->${e.to}`))
           const totalWeight = parsed.edges.reduce((sum, e) => sum + e.weight, 0)
-          const connections = parsed.edges.map((e, i) => `${i + 1}. "${e.from}" ↔ "${e.to}" (costo: ${e.weight})`).join('\n')
+          const connections = parsed.edges.map((e, i) => `${i + 1}. Unir "${e.from}" con "${e.to}" (costo: ${e.weight})`).join('\n')
+          const isSingularConnection = parsed.edges.length === 1
           setResult({
-            title: 'Conexion optima encontrada',
-            body: `Para conectar todos los puntos gastando lo menos posible, necesitas estas ${parsed.edges.length} conexiones:\n\n${connections}`,
-            total: `Costo total de la obra: ${totalWeight}`,
-            note: 'Con esta red todos los puntos quedan conectados con la menor inversion posible.',
+            title: 'Conexión óptima encontrada',
+            body: isSingularConnection
+              ? `Para unir todos los puntos usando la menor cantidad de recursos, necesitas la siguiente conexión:\n\n${connections}`
+              : `Para unir todos los puntos usando la menor cantidad de recursos, necesitas las siguientes ${parsed.edges.length} conexiones:\n\n${connections}`,
+            total: `Costo total: ${totalWeight}`,
+            note: 'Con esta red todos los puntos quedan conectados con la menor inversión posible.',
           })
           break
         }
         case 'max-flow': {
           resolver.setStrategy(new MaxFlowStrategyAlgorithm())
           const res = resolver.resolve(dot, startNode, endNode)
+          const isSingularUnit = Number(res) === 1
           setResult({
-            title: 'Flujo maximo calculado',
-            body: `Desde "${startNode}" hasta "${endNode}" se puede transportar un total de ${res} unidades.`,
-            total: `Flujo maximo: ${res}`,
-            note: `Por mas que intentes, no podra pasar mas de ${res} unidades por esta red. Es el limite maximo que soportan las conexiones actuales.`,
+            title: 'Flujo máximo calculado',
+            body: isSingularUnit
+              ? `Desde "${startNode}" hasta "${endNode}" se puede transportar exactamente 1 unidad.`
+              : `Desde "${startNode}" hasta "${endNode}" se puede transportar un total de ${res} unidades.`,
+            total: `Flujo máximo: ${res}`,
+            note: isSingularUnit
+              ? `Por más que intentes, no podrá pasar más de 1 unidad por esta red. Es el límite máximo que soportan las conexiones actuales.`
+              : `Por más que intentes, no podrá pasar más de ${res} unidades por esta red. Es el límite máximo que soportan las conexiones actuales.`,
           })
           break
         }
@@ -386,8 +394,8 @@ export default function App() {
                 </div>
                 <p className="edit-hint">Seleccionaste "{selectedEdge.originalFrom}" → "{selectedEdge.originalTo}". Editá los campos y guardá los cambios, o eliminá la conexión.</p>
               </div>
-              )}
-            </div>
+            )}
+          </div>
         </div>
 
         <div className="panel controls-panel">
