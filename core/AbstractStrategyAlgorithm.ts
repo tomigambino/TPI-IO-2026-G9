@@ -1,12 +1,15 @@
 import * as graphlib from "@dagrejs/graphlib";
+import { AlgorithmStep } from "./interfaces/step.interface";
 
 export abstract class AbstractStrategyAlgorithm {
+  protected steps: AlgorithmStep[] = [];
+
   dotToGraph(dot: string) {
     let directed = dot.includes("->");
     const graph = new graphlib.Graph({ directed: directed });
 
     let lines = dot.split(";");
-    lines.forEach((line, index) => {
+    lines.forEach((line) => {
       let parts = line.split("--");
       if (directed) {
         parts = line.split("->");
@@ -22,7 +25,6 @@ export abstract class AbstractStrategyAlgorithm {
     return graph;
   }
 
-
   graphToDot(graph: graphlib.Graph, graphOriginal: graphlib.Graph): string {
     let dot = "graph{rankdir=LR;";
     graph.edges().forEach((edge) => {
@@ -31,5 +33,19 @@ export abstract class AbstractStrategyAlgorithm {
     });
     dot += "}";
     return dot;
+  }
+
+  protected addStep(
+    description: string,
+    type: AlgorithmStep["type"],
+    highlightEdges: string[],
+    highlightNodes: string[],
+    accumulatedValue?: number
+  ): void {
+    this.steps.push({ description, type, highlightEdges, highlightNodes, accumulatedValue });
+  }
+
+  getSteps(): AlgorithmStep[] {
+    return this.steps;
   }
 }

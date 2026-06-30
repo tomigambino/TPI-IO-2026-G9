@@ -1,7 +1,25 @@
-import { useRef, useEffect, useCallback, useState } from 'react'
+import { useRef, useEffect, useCallback, useState, forwardRef, useImperativeHandle } from 'react'
 import { Network } from 'vis-network'
 import { DataSet } from 'vis-data'
 import type { GraphNode, GraphEdge } from '../types'
+
+export interface GraphEditorHandle {
+  exportImage: () => string | null
+  getContainer: () => HTMLDivElement | null
+}
+
+interface Props {
+  nodes: GraphNode[]
+  edges: GraphEdge[]
+  directed: boolean
+  highlightEdges?: string[]
+  highlightNodes?: string[]
+  onDeleteNode?: (id: string) => void
+  onDeleteEdge?: (from: string, to: string) => void
+  onEdgeClick?: (from: string, to: string, weight: number) => void
+  onCanvasClick?: () => void
+  compact?: boolean
+}
 
 const DEFAULT_EDGE_COLOR = '#334155'
 const HIGHLIGHT_COLOR = '#16a34a'
@@ -16,19 +34,98 @@ const getNodeRadius = (label: string, viewportScale: number, nodeCount: number) 
   return clamp(Math.round(baseRadius * viewportScale * densityScale), 20, 42)
 }
 
-interface Props {
-  nodes: GraphNode[]
-  edges: GraphEdge[]
-  directed: boolean
-  highlightEdges?: string[]
-  highlightNodes?: string[]
-  onDeleteNode?: (id: string) => void
-  onDeleteEdge?: (from: string, to: string) => void
-  onEdgeClick?: (from: string, to: string, weight: number) => void
-  onCanvasClick?: () => void
+function computeForceDirectedLayout(nodeIds: string[], edges: GraphEdge[]): { x: number; y: number }[] {
+  const n = nodeIds.length
+  if (n <= 1) return [{ x: 0, y: 0 }]
+
+  const idToIndex = new Map<string, number>()
+  nodeIds.forEach((id, i) => idToIndex.set(id, i))
+
+  const adj: number[][] = Array.from({ length: n }, () => [])
+  for (const e of edges) {
+    const i = idToIndex.get(e.from)
+    const j = idToIndex.get(e.to)
+    if (i !== undefined && j !== undefined && i !== j) {
+      adj[i].push(j)
+      adj[j].push(i)
+    }
+  }
+
+  const pos: { x: number; y: number }[] = []
+  const circleR = Math.max(100, n * 20)
+  for (let i = 0; i < n; i++) {
+    const angle = (2 * Math.PI * i) / n - Math.PI / 2
+    pos.push({ x: Math.round(circleR * Math.cos(angle)), y: Math.round(circleR * Math.sin(angle)) })
+  }
+
+  if (n < 3) return pos
+
+  const idealLength = 130
+  const repulsion = 12000
+  const attraction = 0.4
+  const gravity = 0.008
+  const damping = 0.8
+  const iterations = 120
+
+  for (let iter = 0; iter < iterations; iter++) {
+    const forces = pos.map(() => ({ x: 0, y: 0 }))
+
+    for (let i = 0; i < n; i++) {
+      for (let j = i + 1; j < n; j++) {
+        let dx = pos[j].x - pos[i].x
+        let dy = pos[j].y - pos[i].y
+        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
+        const force = repulsion / (dist * dist + 1)
+        const fx = force * (dx / dist)
+        const fy = force * (dy / dist)
+        forces[i].x -= fx
+        forces[i].y -= fy
+        forces[j].x += fx
+        forces[j].y += fy
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      for (const j of adj[i]) {
+        if (j <= i) continue
+        let dx = pos[j].x - pos[i].x
+        let dy = pos[j].y - pos[i].y
+        const dist = Math.max(Math.sqrt(dx * dx + dy * dy), 1)
+        const disp = dist - idealLength
+        const force = attraction * disp
+        const fx = force * (dx / dist)
+        const fy = force * (dy / dist)
+        forces[i].x += fx
+        forces[i].y += fy
+        forces[j].x -= fx
+        forces[j].y -= fy
+      }
+    }
+
+    for (let i = 0; i < n; i++) {
+      forces[i].x -= pos[i].x * gravity
+      forces[i].y -= pos[i].y * gravity
+      pos[i].x += Math.round(forces[i].x * damping)
+      pos[i].y += Math.round(forces[i].y * damping)
+    }
+  }
+
+  let cx = 0, cy = 0
+  for (const p of pos) { cx += p.x; cy += p.y }
+  cx /= n; cy /= n
+  for (const p of pos) { p.x = Math.round(p.x - cx); p.y = Math.round(p.y - cy) }
+
+  const maxDist = Math.max(...pos.map(p => Math.sqrt(p.x * p.x + p.y * p.y)), 1)
+  const targetMax = Math.max(120, n * 28)
+  if (maxDist > targetMax) {
+    const s = targetMax / maxDist
+    for (const p of pos) { p.x = Math.round(p.x * s); p.y = Math.round(p.y * s) }
+  }
+
+  return pos
 }
 
-export default function GraphEditor({ nodes, edges, directed, highlightEdges, highlightNodes, onDeleteNode, onDeleteEdge, onEdgeClick, onCanvasClick }: Props) {
+export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes, edges, directed, highlightEdges, highlightNodes, onDeleteNode, onDeleteEdge, onEdgeClick, onCanvasClick, compact }: Props, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const networkRef = useRef<Network | null>(null)
   const nodesDataSet = useRef(new DataSet<Record<string, unknown>>())
@@ -37,6 +134,17 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const onEdgeClickRef = useRef(onEdgeClick)
   onEdgeClickRef.current = onEdgeClick
+
+  useImperativeHandle(ref, () => ({
+    exportImage: () => {
+      const container = containerRef.current
+      if (!container) return null
+      const canvas = container.querySelector('canvas')
+      if (!canvas) return null
+      return canvas.toDataURL('image/png')
+    },
+    getContainer: () => containerRef.current,
+  }))
 
   // Initialize network once
   useEffect(() => {
@@ -104,9 +212,9 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
     }
 
     const options = {
-      physics: { enabled: true, solver: 'forceAtlas2Based', stabilization: { iterations: 100 } },
+      physics: { enabled: false },
       edges: {
-        font: { size: 15, color: '#E0F2FE', align: 'middle' as const, background: '#0F172A', strokeWidth: 3, strokeColor: '#0F172A' },
+        font: { size: 15, color: '#F8FAFC', align: 'middle' as const, background: '#1E293B', strokeWidth: 3, strokeColor: '#1E293B' },
         width: 3,
         color: { color: DEFAULT_EDGE_COLOR, highlight: DEFAULT_EDGE_COLOR },
         arrows: { to: { enabled: false, scaleFactor: 0.65 } },
@@ -139,6 +247,7 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
         selectConnectedEdges: false,
       },
       manipulation: false,
+      layout: { improvedLayout: false },
     }
 
     networkRef.current = new Network(containerRef.current, { nodes: nodesDataSet.current, edges: edgesDataSet.current }, options)
@@ -191,10 +300,13 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
     }
   }, [])
 
-  // Sync nodes
+  // Sync nodes with force-directed layout positions
   useEffect(() => {
-    const items = nodes.map(n => {
-      const radius = getNodeRadius(n.label, viewportScale, nodes.length)
+    const count = nodes.length
+    const positions = computeForceDirectedLayout(nodes.map(n => n.id), edges)
+
+    const items = nodes.map((n, i) => {
+      const radius = getNodeRadius(n.label, viewportScale, count)
       const labelLength = n.label.trim().length
       const fontSize = labelLength <= 1
         ? Math.max(20, Math.round(radius * 0.88))
@@ -208,6 +320,8 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
         id: n.id,
         label: n.label,
         size: radius,
+        x: positions[i]?.x ?? 0,
+        y: positions[i]?.y ?? 0,
         widthConstraint: { minimum: radius * 2, maximum: radius * 2 },
         heightConstraint: { minimum: radius * 2, valign: 'middle' },
         font: {
@@ -276,10 +390,10 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
     }
   }, [highlightEdges, highlightNodes])
 
-  // Fit view on data change
+  // Fit view on node count change (no animation)
   useEffect(() => {
-    networkRef.current?.fit({ animation: true })
-  }, [nodes.length, edges.length])
+    networkRef.current?.fit()
+  }, [nodes.length])
 
   const handleDelete = useCallback(() => {
     if (!networkRef.current || !selectedNodeId) return
@@ -295,13 +409,13 @@ export default function GraphEditor({ nodes, edges, directed, highlightEdges, hi
   }, [nodes, selectedNodeId])
 
   return (
-    <div className="graph-editor">
+    <div className={`graph-editor${compact ? ' graph-editor--compact' : ''}`}>
       <div ref={containerRef} className="graph-canvas" />
-      {selectedNodeId && (
+      {selectedNodeId && onDeleteNode && (
         <button className="btn-delete" onClick={handleDelete} title="Presioná para eliminar el nodo seleccionado">
           Eliminar seleccionado
         </button>
       )}
     </div>
   )
-}
+})

@@ -3,71 +3,117 @@ import { IStrategy } from "./interfaces/strategy.interface";
 import * as graphlib from "@dagrejs/graphlib";
 
 export class MaxFlowStrategyAlgorithm extends AbstractStrategyAlgorithm implements IStrategy {
-    execute(graphs: string, nodeStart: string | number, nodeEnd: string | number): string {
-        let g = this.dotToGraph(graphs);
+  execute(graphs: string, nodeStart: string | number, nodeEnd: string | number): string {
+    let g = this.dotToGraph(graphs);
+    this.steps = [];
 
-        let maxFlow = this.fordFulkerson(g, String(nodeStart), String(nodeEnd));
-        
-        return `${maxFlow}`;
-    }
+    const source = String(nodeStart);
+    const sink = String(nodeEnd);
 
-    fordFulkerson(graph: graphlib.Graph, source: string, sink: string): number {
-        let residualGraph = new graphlib.Graph({ directed: true });
+    let residualGraph = new graphlib.Graph({ directed: true });
+    const originalCapacities: Record<string, number> = {};
 
-        graph.edges().forEach(edge => {
-            residualGraph.setEdge(edge.v, edge.w, graph.edge(edge));
-            if (!residualGraph.hasEdge(edge.w, edge.v)) {
-                residualGraph.setEdge(edge.w, edge.v, 0);
-            }
-        });
+    g.edges().forEach(edge => {
+      const w = g.edge(edge) as number;
+      residualGraph.setEdge(edge.v, edge.w, w);
+      originalCapacities[`${edge.v}->${edge.w}`] = w;
+      if (!residualGraph.hasEdge(edge.w, edge.v)) {
+        residualGraph.setEdge(edge.w, edge.v, 0);
+      }
+    });
 
-        let maxFlow = 0;
-        let parent: Record<string, string | null> = {};
+    let maxFlow = 0;
+    let iteration = 0;
+    let parent: Record<string, string | null> = {};
 
-        while (this.bfs(residualGraph, source, sink, parent)) {
-            let pathFlow = Infinity;
-            for (let v = sink; v !== source; v = parent[v]!) {
-                let u = parent[v]!;
-                pathFlow = Math.min(pathFlow, residualGraph.edge(u, v));
-            }
+    this.addStep(
+      `Iniciando Ford-Fulkerson (BFS) desde "${source}" hacia "${sink}"`,
+      "explore", [], [source, sink], 0
+    );
 
-            for (let v = sink; v !== source; v = parent[v]!) {
-                let u = parent[v]!;
-                residualGraph.setEdge(u, v, residualGraph.edge(u, v) - pathFlow);
-                residualGraph.setEdge(v, u, residualGraph.edge(v, u) + pathFlow);
-            }
+    while (this.bfs(residualGraph, source, sink, parent)) {
+      iteration++;
+      let pathFlow = Infinity;
+      const path: string[] = [sink];
 
-            maxFlow += pathFlow;
+      for (let v = sink; v !== source; v = parent[v]!) {
+        let u = parent[v]!;
+        pathFlow = Math.min(pathFlow, residualGraph.edge(u, v) as number);
+        path.unshift(u);
+      }
+
+      const pathEdges: string[] = [];
+      for (let i = 0; i < path.length - 1; i++) {
+        pathEdges.push(`${path[i]}->${path[i + 1]}`);
+      }
+
+      this.addStep(
+        `Iteración ${iteration}: Camino de aumento encontrado: ${path.join(" → ")}. Cuello de botella: ${pathFlow} unidad${pathFlow !== 1 ? "es" : ""}`,
+        "select", pathEdges, path, maxFlow + pathFlow
+      );
+
+      for (let v = sink; v !== source; v = parent[v]!) {
+        let u = parent[v]!;
+        residualGraph.setEdge(u, v, (residualGraph.edge(u, v) as number) - pathFlow);
+        residualGraph.setEdge(v, u, (residualGraph.edge(v, u) as number) + pathFlow);
+      }
+
+      maxFlow += pathFlow;
+
+      const saturatedEdges: string[] = [];
+      g.edges().forEach(edge => {
+        const key = `${edge.v}->${edge.w}`;
+        const remaining = residualGraph.edge(edge.v, edge.w) as number;
+        if (remaining === 0 && originalCapacities[key]) {
+          saturatedEdges.push(key);
         }
+      });
 
-        return maxFlow;
+      this.addStep(
+        `Capacidades actualizadas. Flujo acumulado: ${maxFlow}`,
+        "explore", saturatedEdges, [source, sink], maxFlow
+      );
+
+      parent = {};
     }
 
-    bfs(graph: graphlib.Graph, source: string, sink: string, parent: Record<string, string | null>): boolean {
-        let visited: Record<string, boolean> = {};
-        let queue: string[] = [];
+    const resultText = maxFlow === 1
+      ? `No se encontraron más caminos de aumento. Flujo máximo: 1 unidad`
+      : `No se encontraron más caminos de aumento. Flujo máximo: ${maxFlow} unidades`;
 
-        queue.push(source);
-        visited[source] = true;
-        parent[source] = null;
+    this.addStep(
+      resultText,
+      "complete", [], [source, sink], maxFlow
+    );
 
-        while (queue.length > 0) {
-            let u = queue.shift()!;
-            
-            for (let edge of graph.outEdges(u)!) {
-                let v = edge.w;
-                if (!visited[v] && graph.edge(u, v) > 0) {
-                    queue.push(v);
-                    visited[v] = true;
-                    parent[v] = u;
+    return `${maxFlow}`;
+  }
 
-                    if (v === sink) {
-                        return true;
-                    }
-                }
-            }
+  bfs(graph: graphlib.Graph, source: string, sink: string, parent: Record<string, string | null>): boolean {
+    let visited: Record<string, boolean> = {};
+    let queue: string[] = [];
+
+    queue.push(source);
+    visited[source] = true;
+    parent[source] = null;
+
+    while (queue.length > 0) {
+      let u = queue.shift()!;
+
+      for (let edge of graph.outEdges(u)!) {
+        let v = edge.w;
+        if (!visited[v] && (graph.edge(u, v) as number) > 0) {
+          queue.push(v);
+          visited[v] = true;
+          parent[v] = u;
+
+          if (v === sink) {
+            return true;
+          }
         }
-
-        return false;
+      }
     }
+
+    return false;
+  }
 }

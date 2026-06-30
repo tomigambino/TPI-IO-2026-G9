@@ -48,6 +48,46 @@ export function buildNodeOptions(data: GraphData): { value: string; label: strin
   return Array.from(ids).map(id => ({ value: id, label: id }))
 }
 
+function nodeName(i: number): string {
+  if (i < 26) return String.fromCharCode(65 + i)
+  return `${String.fromCharCode(65 + (i % 26))}${Math.floor(i / 26)}`
+}
+
+export function generateRandomGraph(count: number): { nodes: GraphNode[]; edges: GraphEdge[] } {
+  const nodes: GraphNode[] = []
+  for (let i = 0; i < count; i++) {
+    const name = nodeName(i)
+    nodes.push({ id: name, label: name })
+  }
+
+  const edges: GraphEdge[] = []
+  const used = new Set<string>()
+
+  const addEdge = (from: string, to: string) => {
+    const key = `${from}-${to}`
+    const rkey = `${to}-${from}`
+    if (from === to || used.has(key) || used.has(rkey)) return
+    used.add(key)
+    used.add(rkey)
+    edges.push({ from, to, weight: Math.floor(Math.random() * 9) + 1 })
+  }
+
+  for (let i = 1; i < count; i++) {
+    const prev = Math.floor(Math.random() * i)
+    addEdge(nodes[i].id, nodes[prev].id)
+  }
+
+  const extra = Math.floor(count * 0.6)
+  for (let i = 0; i < extra; i++) {
+    const a = Math.floor(Math.random() * count)
+    let b = Math.floor(Math.random() * count)
+    if (a === b) b = (b + 1) % count
+    addEdge(nodes[a].id, nodes[b].id)
+  }
+
+  return { nodes, edges }
+}
+
 export const PROBLEM_LABELS: Record<string, { title: string; desc: string }> = {
   'shortest-path': {
     title: 'Camino más corto',

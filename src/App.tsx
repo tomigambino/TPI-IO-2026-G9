@@ -1,9 +1,12 @@
-import { useState, useCallback, useMemo } from 'react'
+import { useState, useCallback, useMemo, useRef, useEffect } from 'react'
 import type { ProblemType, GraphNode, GraphEdge, ResultData } from './types'
-import { graphToDot, parseDotResult, buildNodeOptions, PROBLEM_LABELS } from './utils'
+import type { AlgorithmStep } from '../core/interfaces/step.interface'
+import type { GraphEditorHandle } from './components/GraphEditor'
+import { graphToDot, parseDotResult, buildNodeOptions, PROBLEM_LABELS, generateRandomGraph } from './utils'
 import ProblemSelector from './components/ProblemSelector'
 import GraphEditor from './components/GraphEditor'
 import ConfirmationModal from './components/ConfirmationModal'
+import AnimationControls from './components/AnimationControls'
 import { Resolver } from '../core/Resolver'
 import { DijkstraStrategyAlgorithm } from '../core/DijkstraStrategyAlgorithm'
 import { KruskalStrategyAlgorithm } from '../core/KruskalStrategyAlgorithm'
@@ -11,6 +14,9 @@ import { PrimStrategyAlgorithm } from '../core/PrimStrategyAlgorithm'
 import { MaxFlowStrategyAlgorithm } from '../core/MaxFlowStrategyAlgorithm'
 
 const resolver = new Resolver()
+const MAX_UNDO = 50
+
+type GraphSnapshot = { nodes: GraphNode[]; edges: GraphEdge[] }
 
 export default function App() {
   const [problem, setProblem] = useState<ProblemType>('shortest-path')
@@ -21,8 +27,39 @@ export default function App() {
   const [result, setResult] = useState<ResultData | null>(null)
   const [resultEdges, setResultEdges] = useState<string[]>([])
   const [resultNodes, setResultNodes] = useState<string[]>([])
+  const [stepEdges, setStepEdges] = useState<string[]>([])
+  const [stepNodes, setStepNodes] = useState<string[]>([])
   const [error, setError] = useState<string | null>(null)
   const [isResetModalOpen, setIsResetModalOpen] = useState(false)
+
+  // Theme state
+  const getInitialTheme = () => localStorage.getItem('theme') === 'light' ? 'light' : 'dark'
+  const [theme, setTheme] = useState<'dark' | 'light'>(getInitialTheme)
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', theme)
+    localStorage.setItem('theme', theme)
+  }, [theme])
+
+  const toggleTheme = useCallback(() => {
+    setTheme(prev => prev === 'dark' ? 'light' : 'dark')
+  }, [])
+
+  // Undo / Redo state
+  const [undoStack, setUndoStack] = useState<GraphSnapshot[]>([])
+  const [redoStack, setRedoStack] = useState<GraphSnapshot[]>([])
+
+  // Animation state
+  const [steps, setSteps] = useState<AlgorithmStep[]>([])
+  const [currentStepIdx, setCurrentStepIdx] = useState(-1)
+  const [isPlaying, setIsPlaying] = useState(false)
+  const [playSpeed, setPlaySpeed] = useState(800)
+  const playTimerRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
+  const graphEditorRef = useRef<GraphEditorHandle>(null)
+  const graphStepRef = useRef<GraphEditorHandle>(null)
+  const [nodeCountInput, setNodeCountInput] = useState('5')
+  const [successMessage, setSuccessMessage] = useState<string | null>(null)
 
   // Input fields
   const [newNodeName, setNewNodeName] = useState('')
@@ -37,6 +74,104 @@ export default function App() {
 
   const needsStartEnd = problem === 'shortest-path' || problem === 'max-flow'
 
+  const clearAnimation = useCallback(() => {
+    setIsPlaying(false)
+    setSteps([])
+    setCurrentStepIdx(-1)
+  }, [])
+
+  // Capture current graph state for undo
+  const pushUndo = useCallback(() => {
+    setUndoStack(prev => {
+      const next = [...prev, { nodes: nodes.map(n => ({ ...n })), edges: edges.map(e => ({ ...e })) }]
+      if (next.length > MAX_UNDO) next.shift()
+      return next
+    })
+    setRedoStack([])
+  }, [nodes, edges])
+
+  // Undo / Redo handlers
+  const handleUndo = useCallback(() => {
+    if (undoStack.length === 0) return
+    const prev = undoStack[undoStack.length - 1]
+    setRedoStack(prevStack => [...prevStack, { nodes: nodes.map(n => ({ ...n })), edges: edges.map(e => ({ ...e })) }])
+    setUndoStack(prev => prev.slice(0, -1))
+    setNodes(prev.nodes)
+    setEdges(prev.edges)
+    setResult(null)
+    setError(null)
+    clearAnimation()
+  }, [undoStack, nodes, edges, clearAnimation])
+
+  const handleRedo = useCallback(() => {
+    if (redoStack.length === 0) return
+    const next = redoStack[redoStack.length - 1]
+    setUndoStack(prev => [...prev, { nodes: nodes.map(n => ({ ...n })), edges: edges.map(e => ({ ...e })) }])
+    setRedoStack(prev => prev.slice(0, -1))
+    setNodes(next.nodes)
+    setEdges(next.edges)
+    setResult(null)
+    setError(null)
+    clearAnimation()
+  }, [redoStack, nodes, edges, clearAnimation])
+
+  // Keyboard shortcuts
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) {
+        e.preventDefault()
+        handleUndo()
+      } else if ((e.ctrlKey || e.metaKey) && (e.key === 'z' && e.shiftKey || e.key === 'y')) {
+        e.preventDefault()
+        handleRedo()
+      }
+    }
+    document.addEventListener('keydown', handler)
+    return () => document.removeEventListener('keydown', handler)
+  }, [handleUndo, handleRedo])
+
+  // Cleanup play timer
+  useEffect(() => {
+    return () => {
+      if (playTimerRef.current) clearInterval(playTimerRef.current)
+    }
+  }, [])
+
+  // Play timer effect
+  useEffect(() => {
+    if (isPlaying) {
+      playTimerRef.current = setInterval(() => {
+        setCurrentStepIdx(prev => {
+          if (prev >= steps.length - 1) {
+            setIsPlaying(false)
+            return prev
+          }
+          return prev + 1
+        })
+      }, playSpeed)
+    } else {
+      if (playTimerRef.current) {
+        clearInterval(playTimerRef.current)
+        playTimerRef.current = null
+      }
+    }
+    return () => {
+      if (playTimerRef.current) {
+        clearInterval(playTimerRef.current)
+        playTimerRef.current = null
+      }
+    }
+  }, [isPlaying, playSpeed, steps.length])
+
+  // Update step-specific highlights for mini graph
+  useEffect(() => {
+    if (currentStepIdx >= 0 && currentStepIdx < steps.length) {
+      const step = steps[currentStepIdx]
+      setStepEdges(step.highlightEdges)
+      setStepNodes(step.highlightNodes)
+    }
+  }, [currentStepIdx, steps])
+
   const handleAddNode = useCallback(() => {
     const name = newNodeName.trim()
     if (!name) return
@@ -44,11 +179,13 @@ export default function App() {
       setError(`Ya existe un punto llamado "${name}"`)
       return
     }
+    pushUndo()
     setNodes(prev => [...prev, { id: name, label: name }])
     setNewNodeName('')
     setError(null)
     setResult(null)
-  }, [newNodeName, nodes])
+    clearAnimation()
+  }, [newNodeName, nodes, pushUndo, clearAnimation])
 
   const handleAddEdge = useCallback(() => {
     const from = edgeFrom.trim()
@@ -63,32 +200,37 @@ export default function App() {
       setError('No se puede conectar un punto consigo mismo')
       return
     }
-
+    pushUndo()
     setEdges(prev => [...prev, { from, to, weight }])
     setEdgeFrom('')
     setEdgeTo('')
     setEdgeWeight('')
     setError(null)
     setResult(null)
+    clearAnimation()
     document.getElementById('edge-from')?.focus()
-  }, [edgeFrom, edgeTo, edgeWeight])
+  }, [edgeFrom, edgeTo, edgeWeight, pushUndo, clearAnimation])
 
   const handleDeleteNode = useCallback((id: string) => {
+    pushUndo()
     setNodes(prev => prev.filter(n => n.id !== id))
     setEdges(prev => prev.filter(e => e.from !== id && e.to !== id))
     setResult(null)
-  }, [])
+    clearAnimation()
+  }, [pushUndo, clearAnimation])
 
   const handleDeleteEdge = useCallback((from: string, to: string) => {
     const idx = edges.findIndex(e => e.from === from && e.to === to)
     if (idx !== -1) {
+      pushUndo()
       setEdges(prev => prev.filter((_, i) => i !== idx))
       if (selectedEdge?.originalFrom === from && selectedEdge?.originalTo === to) {
         setSelectedEdge(null)
       }
       setResult(null)
+      clearAnimation()
     }
-  }, [edges, selectedEdge])
+  }, [edges, selectedEdge, pushUndo, clearAnimation])
 
   const handleEdgeClick = useCallback((from: string, to: string, weight: number) => {
     setSelectedEdge({
@@ -104,6 +246,34 @@ export default function App() {
   const handleClearSelectedEdge = useCallback(() => {
     setSelectedEdge(null)
   }, [])
+
+  const handleExportImage = useCallback(() => {
+    const dataUrl = graphEditorRef.current?.exportImage()
+    if (!dataUrl) return
+    const link = document.createElement('a')
+    link.download = 'grafo.png'
+    link.href = dataUrl
+    document.body.appendChild(link)
+    link.click()
+    document.body.removeChild(link)
+  }, [])
+
+  const handleGenerateGraph = useCallback(() => {
+    const count = Math.max(2, Math.min(15, Number(nodeCountInput) || 2))
+    const graph = generateRandomGraph(count)
+    pushUndo()
+    setNodes(graph.nodes)
+    setEdges(graph.edges)
+    setStartNode('')
+    setEndNode('')
+    setResult(null)
+    setError(null)
+    setStepEdges([])
+    setStepNodes([])
+    clearAnimation()
+    setSuccessMessage(`Grafo aleatorio generado con ${count} nodos`)
+    setTimeout(() => setSuccessMessage(null), 3500)
+  }, [nodeCountInput, pushUndo, clearAnimation])
 
   const edgeNodeSuggestions = useMemo(() => {
     const query = edgeFrom.trim().toLowerCase()
@@ -131,7 +301,7 @@ export default function App() {
       setError('No se puede conectar un punto consigo mismo')
       return
     }
-
+    pushUndo()
     setEdges(prev =>
       prev.map(e =>
         e.from === selectedEdge.originalFrom && e.to === selectedEdge.originalTo
@@ -148,15 +318,18 @@ export default function App() {
     })
     setError(null)
     setResult(null)
-  }, [selectedEdge])
+    clearAnimation()
+  }, [selectedEdge, pushUndo, clearAnimation])
 
   const handleDeleteSelectedEdge = useCallback(() => {
     if (!selectedEdge) return
     const { originalFrom, originalTo } = selectedEdge
+    pushUndo()
     setEdges(prev => prev.filter(e => !(e.from === originalFrom && e.to === originalTo)))
     setSelectedEdge(null)
     setResult(null)
-  }, [selectedEdge])
+    clearAnimation()
+  }, [selectedEdge, pushUndo, clearAnimation])
 
   const handleKeyDown = useCallback((e: React.KeyboardEvent) => {
     if (e.key === 'Enter') {
@@ -181,6 +354,9 @@ export default function App() {
     setResult(null)
     setResultEdges([])
     setResultNodes([])
+    setStepEdges([])
+    setStepNodes([])
+    clearAnimation()
 
     if (nodes.length < 2) {
       setError('Agregá al menos dos puntos al mapa')
@@ -216,16 +392,26 @@ export default function App() {
         case 'shortest-path': {
           resolver.setStrategy(new DijkstraStrategyAlgorithm())
           const res = resolver.resolve(dot, startNode, endNode)
+          const algoSteps = resolver.getSteps()
+          setSteps(algoSteps)
+          setCurrentStepIdx(0)
+
+          if (algoSteps.length > 0) {
+            const last = algoSteps[algoSteps.length - 1]
+            setResultEdges(last.highlightEdges)
+            setResultNodes(last.highlightNodes)
+            setStepEdges(algoSteps[0].highlightEdges)
+            setStepNodes(algoSteps[0].highlightNodes)
+          }
+
           const parsed = parseDotResult(res)
-          setResultEdges(parsed.edges.map(e => `${e.from}->${e.to}`))
           const pathNodes = new Set<string>()
           parsed.edges.forEach(e => { pathNodes.add(e.from); pathNodes.add(e.to) })
-          setResultNodes(Array.from(pathNodes))
-          const steps = parsed.edges.map((e, i) => `${i + 1}. De "${e.from}" a "${e.to}" (costo: ${e.weight})`).join('\n')
+          const stepTexts = parsed.edges.map((e, i) => `${i + 1}. De "${e.from}" a "${e.to}" (costo: ${e.weight})`).join('\n')
           const total = parsed.edges.reduce((s, e) => s + e.weight, 0)
           setResult({
             title: 'Camino más corto encontrado',
-            body: `Para ir de "${startNode}" a "${endNode}" de la forma más barata o rápida, seguí esta ruta:\n\n${steps}`,
+            body: `Para ir de "${startNode}" a "${endNode}" de la forma más barata o rápida, seguí esta ruta:\n\n${stepTexts}`,
             total: `Costo total del viaje: ${total}`,
             note: 'Esta es la mejor ruta posible. Cualquier otro camino tendrá un costo igual o mayor.',
           })
@@ -234,8 +420,19 @@ export default function App() {
         case 'mst': {
           resolver.setStrategy(new KruskalStrategyAlgorithm())
           const res = resolver.resolve(dot)
+          const algoSteps = resolver.getSteps()
+          setSteps(algoSteps)
+          setCurrentStepIdx(0)
+
+          if (algoSteps.length > 0) {
+            const last = algoSteps[algoSteps.length - 1]
+            setResultEdges(last.highlightEdges)
+            setResultNodes(last.highlightNodes)
+            setStepEdges(algoSteps[0].highlightEdges)
+            setStepNodes(algoSteps[0].highlightNodes)
+          }
+
           const parsed = parseDotResult(res)
-          setResultEdges(parsed.edges.map(e => `${e.from}->${e.to}`))
           const totalWeight = parsed.edges.reduce((sum, e) => sum + e.weight, 0)
           const connections = parsed.edges.map((e, i) => `${i + 1}. Unir "${e.from}" con "${e.to}" (costo: ${e.weight})`).join('\n')
           const isSingularConnection = parsed.edges.length === 1
@@ -252,6 +449,18 @@ export default function App() {
         case 'max-flow': {
           resolver.setStrategy(new MaxFlowStrategyAlgorithm())
           const res = resolver.resolve(dot, startNode, endNode)
+          const algoSteps = resolver.getSteps()
+          setSteps(algoSteps)
+          setCurrentStepIdx(0)
+
+          if (algoSteps.length > 0) {
+            const last = algoSteps[algoSteps.length - 1]
+            setResultEdges(last.highlightEdges)
+            setResultNodes(last.highlightNodes)
+            setStepEdges(algoSteps[0].highlightEdges)
+            setStepNodes(algoSteps[0].highlightNodes)
+          }
+
           const isSingularUnit = Number(res) === 1
           setResult({
             title: 'Flujo máximo calculado',
@@ -269,7 +478,7 @@ export default function App() {
     } catch (err) {
       setError(`Error al resolver: ${err instanceof Error ? err.message : 'desconocido'}`)
     }
-  }, [problem, nodes, edges, startNode, endNode, directed, needsStartEnd])
+  }, [problem, nodes, edges, startNode, endNode, directed, needsStartEnd, clearAnimation])
 
   const handleReset = useCallback(() => {
     setNodes([])
@@ -279,26 +488,55 @@ export default function App() {
     setResult(null)
     setResultEdges([])
     setResultNodes([])
+    setStepEdges([])
+    setStepNodes([])
     setError(null)
-  }, [])
+    clearAnimation()
+  }, [clearAnimation])
 
   const handleConfirmReset = useCallback(() => {
     handleReset()
+    setUndoStack([])
+    setRedoStack([])
     setIsResetModalOpen(false)
   }, [handleReset])
+
+  const handleStepChange = useCallback((step: number) => {
+    setCurrentStepIdx(step)
+  }, [])
+
+  const handlePlayToggle = useCallback(() => {
+    setIsPlaying(prev => !prev)
+  }, [])
+
+  const handleSpeedChange = useCallback((speed: number) => {
+    setPlaySpeed(speed)
+  }, [])
+
+  const handleCloseAnimation = useCallback(() => {
+    clearAnimation()
+    setStepEdges([])
+    setStepNodes([])
+  }, [clearAnimation])
+
+  const hasAnimation = steps.length > 0 && currentStepIdx >= 0
 
   return (
     <div className="app">
       <header className="app-header">
         <h1>Optimizador de Redes</h1>
+        <button className="btn-theme" onClick={toggleTheme}>
+          {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
+        </button>
         <p className="subtitle">Armá tu mapa y dejanos buscar la mejor solución</p>
       </header>
 
-      <ProblemSelector value={problem} onChange={(p) => { setProblem(p); setResult(null); setResultEdges([]); setResultNodes([]); setError(null) }} />
+      <ProblemSelector value={problem} onChange={(p) => { setProblem(p); setResult(null); setResultEdges([]); setResultNodes([]); setError(null); clearAnimation() }} />
 
       <div className="main-layout">
         <div className="panel graph-panel">
           <GraphEditor
+            ref={graphEditorRef}
             nodes={nodes}
             edges={edges}
             directed={directed}
@@ -309,6 +547,30 @@ export default function App() {
             onEdgeClick={handleEdgeClick}
             onCanvasClick={handleClearSelectedEdge}
           />
+
+          {hasAnimation && (
+            <>
+            <AnimationControls
+              steps={steps}
+              currentStep={currentStepIdx}
+              isPlaying={isPlaying}
+              playSpeed={playSpeed}
+              onStepChange={handleStepChange}
+              onPlayToggle={handlePlayToggle}
+              onSpeedChange={handleSpeedChange}
+              onClose={handleCloseAnimation}
+            />
+            <GraphEditor
+              ref={graphStepRef}
+              nodes={nodes}
+              edges={edges}
+              directed={directed}
+              highlightEdges={stepEdges}
+              highlightNodes={stepNodes}
+              compact
+            />
+            </>
+          )}
 
           <div className="graph-inputs">
             <div className="input-section">
@@ -442,13 +704,67 @@ export default function App() {
             Empezar de nuevo
           </button>
 
+          <button className="btn-export" onClick={handleExportImage} title="Exportar el grafo como imagen PNG">
+            📷 Exportar como PNG
+          </button>
+
+          <div className="example-select-row">
+            <input
+              type="text"
+              inputMode="numeric"
+              value={nodeCountInput}
+              onChange={e => setNodeCountInput(e.target.value)}
+              onBlur={e => {
+                const num = Math.max(2, Math.min(15, Number(e.target.value) || 2))
+                setNodeCountInput(String(num))
+              }}
+              className="node-count-input"
+              title="Cantidad de nodos (2-15)"
+            />
+            <button onClick={handleGenerateGraph}>Generar grafo</button>
+          </div>
+
+          <div className="undo-redo-bar">
+            <button className="btn-undo" onClick={handleUndo} disabled={undoStack.length === 0} title="Deshacer (Ctrl+Z)">
+              ↩ Deshacer
+            </button>
+            <button className="btn-redo" onClick={handleRedo} disabled={redoStack.length === 0} title="Rehacer (Ctrl+Shift+Z)">
+              ↪ Rehacer
+            </button>
+          </div>
+
+          {successMessage && (
+            <div className="result success-message">
+              <strong>{successMessage}</strong>
+            </div>
+          )}
+
           {error && (
             <div className="result error">
               <strong>{error}</strong>
             </div>
           )}
 
-          {result && (
+          {result && !hasAnimation && (
+            <div className="result-card">
+              <div className="result-card-header">
+                <h3>{result.title}</h3>
+              </div>
+              <div className="result-card-body">
+                <p>{result.body}</p>
+              </div>
+              {result.total && (
+                <div className="result-card-total">
+                  {result.total}
+                </div>
+              )}
+              <div className="result-card-footer">
+                <p>{result.note}</p>
+              </div>
+            </div>
+          )}
+
+          {result && hasAnimation && currentStepIdx === steps.length - 1 && (
             <div className="result-card">
               <div className="result-card-header">
                 <h3>{result.title}</h3>

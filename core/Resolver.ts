@@ -1,5 +1,6 @@
 import { IResolver } from "./interfaces/resolver.interface";
 import { IStrategy } from "./interfaces/strategy.interface";
+import { AlgorithmStep } from "./interfaces/step.interface";
 
 export class Resolver implements IResolver {
     public strategy!: IStrategy;
@@ -13,5 +14,10 @@ export class Resolver implements IResolver {
 
     setStrategy(strategy: IStrategy) {
         this.strategy = strategy;
+    }
+
+    getSteps(): AlgorithmStep[] {
+        if (!this.strategy) return [];
+        return this.strategy.getSteps();
     }
 }
