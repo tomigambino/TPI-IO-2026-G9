@@ -43,7 +43,7 @@ export default function AnimationControls({
   }, [currentStep, total, onStepChange])
 
   const handleSlider = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    onSpeedChange(Number(e.target.value))
+    onSpeedChange(2700 - Number(e.target.value))
   }, [onSpeedChange])
 
   if (!step) return null
@@ -105,7 +105,7 @@ export default function AnimationControls({
             min="200"
             max="2500"
             step="100"
-            value={playSpeed}
+            value={2700 - playSpeed}
             onChange={handleSlider}
             title="Velocidad de animación"
           />
@@ -113,9 +113,34 @@ export default function AnimationControls({
         </div>
       </div>
 
-      <div className="animation-description">
+      <div className="animation-description" style={{ display: 'flex', gap: '8px', alignItems: 'flex-start' }}>
         <span className="animation-type-icon">{TYPE_ICON[step.type] || '•'}</span>
-        <p>{step.description}</p>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '4px' }}>
+          {step.description.split('\n').map((line, idx) => {
+            const isDecision = line.includes('[Aceptado]') || line.includes('[Rechazado]') || line.includes('[Completado]') || line.includes('[Explorando]')
+            const isAccepted = line.includes('Aceptado') || line.includes('Completado')
+            const isRejected = line.includes('Rechazado')
+            
+            const color = isAccepted 
+              ? 'var(--success-text)' 
+              : (isRejected ? 'var(--error-text)' : 'inherit')
+              
+            return (
+              <p
+                key={idx}
+                style={{
+                  fontSize: '14px',
+                  color: isDecision ? color : 'var(--text-secondary)',
+                  fontWeight: isDecision ? 'bold' : 500,
+                  margin: 0,
+                  lineHeight: '1.4'
+                }}
+              >
+                {line}
+              </p>
+            )
+          })}
+        </div>
       </div>
     </div>
   )

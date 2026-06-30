@@ -7,8 +7,49 @@ export class KruskalStrategyAlgorithm
   implements IStrategy
 {
   execute(graphs: string): string {
-    let g = this.dotToGraph(graphs);
     this.steps = [];
+
+    // Pre-filter parallel/duplicate edges: keep only the minimum weight one between each pair of nodes
+    const edgeMap = new Map<string, { from: string; to: string; weight: number }>();
+    const lines = graphs.split(";");
+    
+    lines.forEach((line) => {
+      let parts = line.split("--");
+      if (line.includes("->")) {
+        parts = line.split("->");
+      }
+
+      if (parts.length == 2) {
+        let from = parts[0].trim();
+        let to = parts[1].split("[")[0].trim();
+        let weight = parseFloat(parts[1].split("label=")[1].split("]")[0]);
+        
+        // For undirected, normalize key
+        const key = [from, to].sort().join('-');
+        
+        const existing = edgeMap.get(key);
+        if (!existing || weight < existing.weight) {
+          edgeMap.set(key, { from, to, weight });
+        }
+      }
+    });
+
+    const g = new graphlib.Graph({ directed: false });
+    // Add all nodes that were in the original dot representation (including isolated ones)
+    lines.forEach((line) => {
+      if (!line.includes("--") && !line.includes("->")) {
+        const n = line.trim();
+        if (n) {
+          g.setNode(n);
+        }
+      }
+    });
+
+    edgeMap.forEach(({ from, to, weight }) => {
+      g.setNode(from);
+      g.setNode(to);
+      g.setEdge(from, to, weight);
+    });
 
     const weightFn = (e: graphlib.Edge): number => g.edge(e) as number;
 
@@ -22,7 +63,6 @@ export class KruskalStrategyAlgorithm
     const mstEdges: { from: string; to: string; weight: number }[] = [];
     const mstNodeSet = new Set<string>();
 
-    let first = true;
     for (const edge of edges) {
       const u = edge.v;
       const v = edge.w;
@@ -34,21 +74,13 @@ export class KruskalStrategyAlgorithm
         mstNodeSet.add(v);
         uf.union(u, v);
 
-        if (first) {
-          this.addStep(
-            `Aristas ordenadas por peso. Considerando "${u}" ↔ "${v}" (peso: ${edge.weight}): ✓ se agrega al árbol`,
-            "select", [edgeKey], Array.from(mstNodeSet), edge.weight
-          );
-          first = false;
-        } else {
-          this.addStep(
-            `Considerando "${u}" ↔ "${v}" (peso: ${edge.weight}): ✓ no forma ciclo, se agrega al árbol`,
-            "select", [edgeKey], Array.from(mstNodeSet), edge.weight
-          );
-        }
+        this.addStep(
+          `"${u}" ↔ "${v}" (peso: ${edge.weight})\n[Aceptado]`,
+          "select", [edgeKey], Array.from(mstNodeSet), edge.weight
+        );
       } else {
         this.addStep(
-          `Considerando "${u}" ↔ "${v}" (peso: ${edge.weight}): ✗ formaría un ciclo, se descarta`,
+          `"${u}" ↔ "${v}" (peso: ${edge.weight})\n[Rechazado]`,
           "reject", [edgeKey], Array.from(mstNodeSet)
         );
       }
@@ -58,7 +90,7 @@ export class KruskalStrategyAlgorithm
     const finalEdges = mstEdges.map(e => `${e.from}->${e.to}`);
 
     this.addStep(
-      `Árbol de expansión mínimo completado. Costo total: ${totalWeight}`,
+      `Árbol de expansión mínimo completado. Costo total: ${totalWeight}\n[Completado]`,
       "complete", finalEdges, Array.from(mstNodeSet), totalWeight
     );
 

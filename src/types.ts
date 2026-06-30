@@ -1,8 +1,10 @@
-export type ProblemType = 'shortest-path' | 'mst' | 'max-flow'
+export type ProblemType = 'shortest-path' | 'mst' | 'max-flow' | 'redundant-paths'
 
 export interface GraphNode {
   id: string
   label: string
+  x?: number
+  y?: number
 }
 
 export interface GraphEdge {

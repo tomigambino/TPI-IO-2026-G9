@@ -27,7 +27,7 @@ export class MaxFlowStrategyAlgorithm extends AbstractStrategyAlgorithm implemen
     let parent: Record<string, string | null> = {};
 
     this.addStep(
-      `Iniciando Ford-Fulkerson (BFS) desde "${source}" hacia "${sink}"`,
+      `Iniciando Ford-Fulkerson (BFS) desde "${source}" hacia "${sink}"\n[Explorando]`,
       "explore", [], [source, sink], 0
     );
 
@@ -48,7 +48,7 @@ export class MaxFlowStrategyAlgorithm extends AbstractStrategyAlgorithm implemen
       }
 
       this.addStep(
-        `Iteración ${iteration}: Camino de aumento encontrado: ${path.join(" → ")}. Cuello de botella: ${pathFlow} unidad${pathFlow !== 1 ? "es" : ""}`,
+        `Camino de aumento: ${path.join(" → ")} (flujo: ${pathFlow})\n[Aceptado]`,
         "select", pathEdges, path, maxFlow + pathFlow
       );
 
@@ -70,7 +70,7 @@ export class MaxFlowStrategyAlgorithm extends AbstractStrategyAlgorithm implemen
       });
 
       this.addStep(
-        `Capacidades actualizadas. Flujo acumulado: ${maxFlow}`,
+        `Capacidades actualizadas. Flujo acumulado: ${maxFlow}\n[Explorando]`,
         "explore", saturatedEdges, [source, sink], maxFlow
       );
 
@@ -82,7 +82,7 @@ export class MaxFlowStrategyAlgorithm extends AbstractStrategyAlgorithm implemen
       : `No se encontraron más caminos de aumento. Flujo máximo: ${maxFlow} unidades`;
 
     this.addStep(
-      resultText,
+      `${resultText}\n[Completado]`,
       "complete", [], [source, sink], maxFlow
     );
 

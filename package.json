@@ -10,6 +10,7 @@
   },
   "dependencies": {
     "@dagrejs/graphlib": "^4.0.1",
+    "lucide-react": "^1.22.0",
     "react": "^19.2.7",
     "react-dom": "^19.2.7",
     "vis-data": "^8.0.4",

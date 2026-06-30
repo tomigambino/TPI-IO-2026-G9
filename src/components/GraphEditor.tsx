@@ -12,13 +12,17 @@ interface Props {
   nodes: GraphNode[]
   edges: GraphEdge[]
   directed: boolean
-  highlightEdges?: string[]
-  highlightNodes?: string[]
+  highlightEdges?: (string | { id: string; color: string })[]
+  highlightNodes?: (string | { id: string; color: string; border?: string })[]
   onDeleteNode?: (id: string) => void
   onDeleteEdge?: (from: string, to: string) => void
   onEdgeClick?: (from: string, to: string, weight: number) => void
   onCanvasClick?: () => void
   compact?: boolean
+  editable?: boolean
+  onNodeDragEnd?: (id: string, x: number, y: number) => void
+  theme?: 'dark' | 'light'
+  stepType?: 'explore' | 'select' | 'reject' | 'complete'
 }
 
 const DEFAULT_EDGE_COLOR = '#334155'
@@ -125,7 +129,7 @@ function computeForceDirectedLayout(nodeIds: string[], edges: GraphEdge[]): { x:
   return pos
 }
 
-export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes, edges, directed, highlightEdges, highlightNodes, onDeleteNode, onDeleteEdge, onEdgeClick, onCanvasClick, compact }: Props, ref) {
+export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes, edges, directed, highlightEdges, highlightNodes, onDeleteNode, onDeleteEdge, onEdgeClick, onCanvasClick, compact, editable, onNodeDragEnd, theme, stepType }: Props, ref) {
   const containerRef = useRef<HTMLDivElement>(null)
   const networkRef = useRef<Network | null>(null)
   const nodesDataSet = useRef(new DataSet<Record<string, unknown>>())
@@ -134,6 +138,9 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null)
   const onEdgeClickRef = useRef(onEdgeClick)
   onEdgeClickRef.current = onEdgeClick
+  
+  const onNodeDragEndRef = useRef(onNodeDragEnd)
+  onNodeDragEndRef.current = onNodeDragEnd
 
   useImperativeHandle(ref, () => ({
     exportImage: () => {
@@ -293,19 +300,66 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes
       setSelectedNodeId(null)
     })
 
+    networkRef.current.on('dragEnd', (params) => {
+      if (params.nodes.length > 0) {
+        const nodeId = String(params.nodes[0])
+        const pos = networkRef.current?.getPosition(nodeId)
+        if (pos && onNodeDragEndRef.current) {
+          onNodeDragEndRef.current(nodeId, pos.x, pos.y)
+        }
+      }
+    })
+
     return () => {
       resizeObserver.disconnect()
       networkRef.current?.destroy()
       networkRef.current = null
     }
-  }, [])
+  }, [nodes.length, edges.length, directed, theme])
 
-  // Sync nodes with force-directed layout positions
+  // Update interaction options based on editable prop
   useEffect(() => {
+    if (!networkRef.current) return
+    const isEditable = editable !== false
+    networkRef.current.setOptions({
+      interaction: {
+        dragNodes: isEditable,
+        dragView: isEditable,
+        zoomView: isEditable,
+        selectable: isEditable,
+        hover: isEditable,
+      }
+    })
+  }, [editable])
+
+  // Update edge font options when theme changes to fix light mode weight backgrounds
+  useEffect(() => {
+    if (!networkRef.current) return
+    const isDark = theme === 'dark'
+    const fontColor = isDark ? '#F8FAFC' : '#0F172A'
+    const canvasBg = isDark ? '#0F172A' : '#F8FAFC' // Matches canvas background!
+    
+    networkRef.current.setOptions({
+      edges: {
+        font: {
+          size: 15,
+          color: fontColor,
+          align: 'middle' as const, // Centered on the line
+          background: canvasBg, // Solid background to cut the line
+          strokeWidth: 6, // 6px stroke halo for maximum legibility
+          strokeColor: canvasBg
+        }
+      }
+    })
+  }, [theme])
+
+  // Sync nodes and edges synchronously in a single effect to avoid race conditions and orphan labels
+  useEffect(() => {
+    // 1. Sync Nodes
     const count = nodes.length
     const positions = computeForceDirectedLayout(nodes.map(n => n.id), edges)
 
-    const items = nodes.map((n, i) => {
+    const nodeItems = nodes.map((n, i) => {
       const radius = getNodeRadius(n.label, viewportScale, count)
       const labelLength = n.label.trim().length
       const fontSize = labelLength <= 1
@@ -320,8 +374,8 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes
         id: n.id,
         label: n.label,
         size: radius,
-        x: positions[i]?.x ?? 0,
-        y: positions[i]?.y ?? 0,
+        x: n.x !== undefined ? n.x : (positions[i]?.x ?? 0),
+        y: n.y !== undefined ? n.y : (positions[i]?.y ?? 0),
         widthConstraint: { minimum: radius * 2, maximum: radius * 2 },
         heightConstraint: { minimum: radius * 2, valign: 'middle' },
         font: {
@@ -332,29 +386,95 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes
         }
       }
     })
+
+    // 2. Sync Edges
+    const pairCounts = new Map<string, number>();
+    edges.forEach((e) => {
+      const pairKey = directed ? `${e.from}->${e.to}` : [e.from, e.to].sort().join('-');
+      pairCounts.set(pairKey, (pairCounts.get(pairKey) || 0) + 1);
+    });
+
+    const currentPairIdx = new Map<string, number>();
+    const seenEdgesRender = new Set<string>();
+
+    const edgeItems = edges
+      .map((e, i) => {
+        const fromNode = nodes.find(n => n.id === e.from);
+        const toNode = nodes.find(n => n.id === e.to);
+        if (!fromNode || !toNode || e.from === e.to) return null;
+
+        const pairKey = directed ? `${e.from}->${e.to}` : [e.from, e.to].sort().join('-');
+        
+        if (seenEdgesRender.has(pairKey)) return null;
+        seenEdgesRender.add(pairKey);
+
+        const count = pairCounts.get(pairKey) || 1;
+        const idx = currentPairIdx.get(pairKey) || 0;
+        currentPairIdx.set(pairKey, idx + 1);
+
+        let smoothOpt: any = { enabled: false };
+        const hasReverse = directed && edges.some(other => other.from === e.to && other.to === e.from);
+        
+        if (count > 1 || hasReverse) {
+          const step = idx % 2 === 0 ? 1 : -1;
+          const roundVal = 0.18 + Math.floor(idx / 2) * 0.15;
+          smoothOpt = {
+            enabled: true,
+            type: step > 0 ? 'curvedCW' : 'curvedCCW',
+            roundness: roundVal
+          };
+        }
+
+        const isDark = theme === 'dark';
+        const fontColor = isDark ? '#F8FAFC' : '#0F172A';
+        const canvasBg = isDark ? '#0F172A' : '#F8FAFC';
+
+        return {
+          id: `${e.from}-${e.to}-${i}`,
+          from: e.from,
+          to: e.to,
+          label: String(e.weight),
+          arrows: directed ? { to: { enabled: true, scaleFactor: 0.65 } } : undefined,
+          smooth: smoothOpt,
+          font: {
+            size: 15,
+            color: fontColor,
+            align: 'middle',
+            background: canvasBg,
+            strokeWidth: 6,
+            strokeColor: canvasBg
+          }
+        }
+      })
+      .filter((item): item is NonNullable<typeof item> => item !== null);
+
+    // Update datasets in a single transaction to prevent race conditions or blank frames
     nodesDataSet.current.clear()
-    nodesDataSet.current.add(items as unknown as Record<string, unknown>[])
-  }, [nodes, viewportScale])
-
-  // Sync edges
-  useEffect(() => {
-    const items = edges.map((e, i) => ({
-      id: `${e.from}-${e.to}-${i}`,
-      from: e.from,
-      to: e.to,
-      label: String(e.weight),
-      arrows: directed ? { to: { enabled: true, scaleFactor: 0.65 } } : undefined,
-    }))
+    nodesDataSet.current.add(nodeItems as unknown as Record<string, unknown>[])
     edgesDataSet.current.clear()
-    edgesDataSet.current.add(items as unknown as Record<string, unknown>[])
-  }, [edges, directed])
+    edgesDataSet.current.add(edgeItems as unknown as Record<string, unknown>[])
+  }, [nodes, edges, directed, theme, viewportScale])
 
-  // Highlight solution edges and nodes in green
+  // Highlight solution edges and nodes with semantic or custom colors
   useEffect(() => {
     if (!networkRef.current) return
 
     const defaultEdge = { color: { color: DEFAULT_EDGE_COLOR, highlight: DEFAULT_EDGE_COLOR }, width: 3 }
-    const highlightedEdge = { color: { color: HIGHLIGHT_COLOR, highlight: HIGHLIGHT_COLOR }, width: 5 }
+
+    // Determine highlighting colors based on stepType
+    let edgeColor = HIGHLIGHT_COLOR; // Green (#16a34a)
+    let nodeBg = '#166534'; // Dark green
+    let nodeBorder = '#4ADE80'; // Light green
+
+    if (stepType === 'reject') {
+      edgeColor = '#ef4444'; // Red
+      nodeBg = '#991b1b'; // Dark red
+      nodeBorder = '#FCA5A5'; // Light red
+    } else if (stepType === 'explore') {
+      edgeColor = '#06b6d4'; // Cyan
+      nodeBg = '#0e7490'; // Dark cyan
+      nodeBorder = '#22d3ee'; // Light cyan
+    }
 
     edgesDataSet.current.forEach((edge: Record<string, unknown>) => {
       const e = edge as unknown as { id: string }
@@ -366,14 +486,24 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes
         const e = edge as unknown as { id: string; from: string; to: string }
         const key = `${e.from}->${e.to}`
         const reverseKey = `${e.to}->${e.from}`
-        if (highlightEdges.includes(key) || highlightEdges.includes(reverseKey)) {
-          edgesDataSet.current.update({ id: e.id, ...highlightedEdge } as unknown as Record<string, unknown>)
+        
+        const found = highlightEdges.find((h: any) => {
+          if (typeof h === 'string') {
+            return h === key || h === reverseKey;
+          } else {
+            return h && (h.id === key || h.id === reverseKey);
+          }
+        });
+
+        if (found) {
+          const customColor = typeof found === 'object' ? found.color : edgeColor;
+          const customEdgeOpt = { color: { color: customColor, highlight: customColor }, width: 5 }
+          edgesDataSet.current.update({ id: e.id, ...customEdgeOpt } as unknown as Record<string, unknown>)
         }
       })
     }
 
     const defaultNode = { color: { background: NODE_CYAN, border: NODE_CYAN, highlight: { background: NODE_CYAN, border: '#F8FAFC' } } }
-    const highlightedNode = { color: { background: '#166534', border: '#4ADE80', highlight: { background: '#166534', border: '#4ADE80' } } }
 
     nodesDataSet.current.forEach((node: Record<string, unknown>) => {
       const n = node as unknown as { id: string }
@@ -383,12 +513,28 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({ nodes
     if (highlightNodes) {
       nodesDataSet.current.forEach((node: Record<string, unknown>) => {
         const n = node as unknown as { id: string }
-        if (highlightNodes.includes(n.id)) {
-          nodesDataSet.current.update({ id: n.id, ...highlightedNode } as unknown as Record<string, unknown>)
+        
+        const found = highlightNodes.find((h: any) => {
+          if (typeof h === 'string') {
+            return h === n.id;
+          } else {
+            return h && h.id === n.id;
+          }
+        });
+
+        if (found) {
+          let customBg = nodeBg;
+          let customBorder = nodeBorder;
+          if (typeof found === 'object') {
+            customBg = found.color;
+            customBorder = found.border || found.color;
+          }
+          const customNodeOpt = { color: { background: customBg, border: customBorder, highlight: { background: customBg, border: customBorder } } }
+          nodesDataSet.current.update({ id: n.id, ...customNodeOpt } as unknown as Record<string, unknown>)
         }
       })
     }
-  }, [highlightEdges, highlightNodes])
+  }, [highlightEdges, highlightNodes, stepType])
 
   // Fit view on node count change (no animation)
   useEffect(() => {

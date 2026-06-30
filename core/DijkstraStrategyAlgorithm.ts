@@ -24,7 +24,7 @@ export class DijkstraStrategyAlgorithm extends AbstractStrategyAlgorithm impleme
     dist[start] = 0;
 
     this.addStep(
-      `Iniciando Dijkstra desde "${start}" hacia "${end}"`,
+      `Iniciando Dijkstra desde "${start}" hacia "${end}"\n[Explorando]`,
       "explore", [], [start], 0
     );
 
@@ -42,7 +42,7 @@ export class DijkstraStrategyAlgorithm extends AbstractStrategyAlgorithm impleme
 
       if (current === end) {
         this.addStep(
-          `¡Llegamos al destino "${end}"! Distancia más corta: ${dist[end]}`,
+          `Llegamos al destino "${end}" (costo: ${dist[end]})\n[Completado]`,
           "select", [], [end], dist[end]
         );
         break;
@@ -51,11 +51,15 @@ export class DijkstraStrategyAlgorithm extends AbstractStrategyAlgorithm impleme
       unvisited.delete(current);
 
       this.addStep(
-        `Visitando "${current}" (distancia más corta desde origen: ${dist[current]})`,
+        `Visitando "${current}" (costo: ${dist[current]})\n[Explorando]`,
         "explore", [], [current], dist[current]
       );
 
-      const neighbors = (g.neighbors(current) as string[]) || [];
+      // Sort neighbors by edge weight so the closest ones are evaluated first in step-by-step animation
+      const neighbors = ((g.neighbors(current) as string[]) || [])
+        .map(n => ({ node: n, weight: g.edge(current, n) as number }))
+        .sort((a, b) => a.weight - b.weight)
+        .map(item => item.node);
       for (const neighbor of neighbors) {
         if (!unvisited.has(neighbor)) continue;
 
@@ -63,17 +67,16 @@ export class DijkstraStrategyAlgorithm extends AbstractStrategyAlgorithm impleme
         const newDist = dist[current] + weight;
 
         if (newDist < dist[neighbor]) {
-          const oldStr = dist[neighbor] === Infinity ? "∞" : String(dist[neighbor]);
           dist[neighbor] = newDist;
           prev[neighbor] = current;
 
           this.addStep(
-            `Arista "${current}" → "${neighbor}" (peso: ${weight}): distancia ${oldStr} → ${newDist}`,
+            `"${current}" → "${neighbor}" (peso: ${weight})\n[Aceptado]`,
             "select", [`${current}->${neighbor}`], [current, neighbor], newDist
           );
         } else {
           this.addStep(
-            `Arista "${current}" → "${neighbor}" (peso: ${weight}): distancia ${newDist} no mejora la actual (${dist[neighbor]}), se descarta`,
+            `"${current}" → "${neighbor}" (peso: ${weight})\n[Rechazado]`,
             "reject", [`${current}->${neighbor}`], [current, neighbor], dist[neighbor]
           );
         }
@@ -82,7 +85,7 @@ export class DijkstraStrategyAlgorithm extends AbstractStrategyAlgorithm impleme
 
     if (dist[end] === Infinity) {
       this.addStep(
-        `No hay camino desde "${start}" hasta "${end}"`,
+        `No hay camino desde "${start}" hasta "${end}"\n[Rechazado]`,
         "complete", [], [], Infinity
       );
       return "digraph{rankdir=LR;}";
@@ -102,7 +105,7 @@ export class DijkstraStrategyAlgorithm extends AbstractStrategyAlgorithm impleme
     }
 
     this.addStep(
-      `¡Camino encontrado! ${path.join(" → ")} (costo total: ${dist[end]})`,
+      `Camino más corto encontrado: ${path.join(" → ")} (costo: ${dist[end]})\n[Completado]`,
       "complete",
       pathEdges.map(e => `${e.from}->${e.to}`),
       path,
