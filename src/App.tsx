@@ -528,7 +528,6 @@ export default function App() {
         <button className="btn-theme" onClick={toggleTheme}>
           {theme === 'dark' ? 'Modo claro' : 'Modo oscuro'}
         </button>
-        <p className="subtitle">Armá tu mapa y dejanos buscar la mejor solución</p>
       </header>
 
       <ProblemSelector value={problem} onChange={(p) => { setProblem(p); setResult(null); setResultEdges([]); setResultNodes([]); setError(null); clearAnimation() }} />
@@ -672,6 +671,7 @@ export default function App() {
                 <p className="edit-hint">Seleccionaste "{selectedEdge.originalFrom}" → "{selectedEdge.originalTo}". Editá los campos y guardá los cambios, o eliminá la conexión.</p>
               </div>
             )}
+
           </div>
         </div>
 
@@ -705,24 +705,8 @@ export default function App() {
           </button>
 
           <button className="btn-export" onClick={handleExportImage} title="Exportar el grafo como imagen PNG">
-            📷 Exportar como PNG
+            Exportar como PNG
           </button>
-
-          <div className="example-select-row">
-            <input
-              type="text"
-              inputMode="numeric"
-              value={nodeCountInput}
-              onChange={e => setNodeCountInput(e.target.value)}
-              onBlur={e => {
-                const num = Math.max(2, Math.min(15, Number(e.target.value) || 2))
-                setNodeCountInput(String(num))
-              }}
-              className="node-count-input"
-              title="Cantidad de nodos (2-15)"
-            />
-            <button onClick={handleGenerateGraph}>Generar grafo</button>
-          </div>
 
           <div className="undo-redo-bar">
             <button className="btn-undo" onClick={handleUndo} disabled={undoStack.length === 0} title="Deshacer (Ctrl+Z)">
@@ -731,6 +715,28 @@ export default function App() {
             <button className="btn-redo" onClick={handleRedo} disabled={redoStack.length === 0} title="Rehacer (Ctrl+Shift+Z)">
               ↪ Rehacer
             </button>
+          </div>
+
+          <div className="gen-card">
+            <h4>Generar grafo aleatorio</h4>
+            <div className="param-row">
+              <label>Cantidad de nodos</label>
+              <div className="input-row">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  value={nodeCountInput}
+                  onChange={e => setNodeCountInput(e.target.value)}
+                  onBlur={e => {
+                    const num = Math.max(2, Math.min(15, Number(e.target.value) || 2))
+                    setNodeCountInput(String(num))
+                  }}
+                  className="node-count-input"
+                  title="Cantidad de nodos (2-15)"
+                />
+                <button className="btn-gen" onClick={handleGenerateGraph}>Generar</button>
+              </div>
+            </div>
           </div>
 
           {successMessage && (

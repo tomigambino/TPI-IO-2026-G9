@@ -98,7 +98,7 @@ export default function AnimationControls({
         </button>
 
         <div className="anim-speed-group">
-          <span className="anim-speed-label">🐢</span>
+          <span className="anim-speed-label">Lenta</span>
           <input
             type="range"
             className="anim-speed-slider"
@@ -109,7 +109,7 @@ export default function AnimationControls({
             onChange={handleSlider}
             title="Velocidad de animación"
           />
-          <span className="anim-speed-label">🐇</span>
+          <span className="anim-speed-label">Rápida</span>
         </div>
       </div>
 
