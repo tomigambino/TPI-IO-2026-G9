@@ -335,9 +335,6 @@ export default function App() {
     const graph = generateRandomGraph(count, directed)
     pushUndo()
 
-    // Fully clear state first to reset any asynchronous vis-network rendering states
-    setNodes([])
-    setEdges([])
     setStartNode('')
     setEndNode('')
     setResult(null)
@@ -346,23 +343,20 @@ export default function App() {
     setStepNodes([])
     clearAnimation()
 
-    setTimeout(() => {
-      // Synchronously ensure all edges strictly point to actual existing nodes, have no self-loops, and contain no duplicates
-      const nodeIds = new Set(graph.nodes.map(n => n.id))
-      const seenEdges = new Set<string>()
-      const cleanEdges = graph.edges.filter(e => {
-        if (!nodeIds.has(e.from) || !nodeIds.has(e.to) || e.from === e.to) return false
-        const key = directed ? `${e.from}->${e.to}` : [e.from, e.to].sort().join('-')
-        if (seenEdges.has(key)) return false
-        seenEdges.add(key)
-        return true
-      })
+    const nodeIds = new Set(graph.nodes.map(n => n.id))
+    const seenEdges = new Set<string>()
+    const cleanEdges = graph.edges.filter(e => {
+      if (!nodeIds.has(e.from) || !nodeIds.has(e.to) || e.from === e.to) return false
+      const key = directed ? `${e.from}->${e.to}` : [e.from, e.to].sort().join('-')
+      if (seenEdges.has(key)) return false
+      seenEdges.add(key)
+      return true
+    })
 
-      setNodes(graph.nodes)
-      setEdges(cleanEdges)
-      setSuccessMessage(`Grafo aleatorio generado con ${count} nodos`)
-      setTimeout(() => setSuccessMessage(null), 3500)
-    }, 0)
+    setNodes(graph.nodes)
+    setEdges(cleanEdges)
+    setSuccessMessage(`Grafo aleatorio generado con ${count} nodos`)
+    setTimeout(() => setSuccessMessage(null), 3500)
   }, [nodeCountInput, directed, pushUndo, clearAnimation])
 
   const handleNodeDragEnd = useCallback((id: string, x: number, y: number) => {
