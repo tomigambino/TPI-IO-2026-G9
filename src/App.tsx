@@ -30,6 +30,15 @@ const PATH_COLORS = [
   { name: 'Amarillo', hex: '#eab308', bg: '#713f12', border: '#facc15' },
 ]
 
+const REDUNDANT_PATH_COLORS = [
+  { name: 'Azul', hex: '#3b82f6', bg: '#1e3a8a', border: '#60a5fa' },
+  { name: 'Naranja', hex: '#f97316', bg: '#7c2d12', border: '#fb923c' },
+  { name: 'Violeta', hex: '#a855f7', bg: '#581c87', border: '#c084fc' },
+  { name: 'Cian', hex: '#06b6d4', bg: '#0e7490', border: '#22d3ee' },
+  { name: 'Rosa', hex: '#ec4899', bg: '#831843', border: '#f472b6' },
+  { name: 'Amarillo', hex: '#eab308', bg: '#713f12', border: '#facc15' },
+]
+
 export default function App() {
   const [problem, setProblem] = useState<ProblemType>('shortest-path')
   const [nodes, setNodes] = useState<GraphNode[]>([])
@@ -72,7 +81,7 @@ export default function App() {
   const [showAnimation, setShowAnimation] = useState(false)
 
   const graphEditorRef = useRef<GraphEditorHandle>(null)
-  const [nodeCountInput, setNodeCountInput] = useState('5')
+  const [nodeCountInput, setNodeCountInput] = useState('')
   const [successMessage, setSuccessMessage] = useState<string | null>(null)
   const [redundantPathsCount, setRedundantPathsCount] = useState<string>('2')
   const resultDataRef = useRef<any>(null)
@@ -331,7 +340,8 @@ export default function App() {
   }, [])
 
   const handleGenerateGraph = useCallback(() => {
-    const count = Math.max(2, Math.min(15, Number(nodeCountInput) || 2))
+    const parsed = parseInt(nodeCountInput)
+    const count = isNaN(parsed) ? 5 : Math.max(2, Math.min(15, parsed))
     const graph = generateRandomGraph(count, directed)
     pushUndo()
 
@@ -533,7 +543,7 @@ export default function App() {
       }
 
       if (foundPathIdx !== -1) {
-        edges.push({ id: eKey, color: PATH_COLORS[foundPathIdx % PATH_COLORS.length].hex })
+        edges.push({ id: eKey, color: REDUNDANT_PATH_COLORS[foundPathIdx % REDUNDANT_PATH_COLORS.length].hex })
       } else {
         edges.push(eKey)
       }
@@ -553,8 +563,8 @@ export default function App() {
       if (foundPathIdx !== -1) {
         nodes.push({
           id: nId,
-          color: isStartOrEnd ? '#166534' : PATH_COLORS[foundPathIdx % PATH_COLORS.length].bg,
-          border: isStartOrEnd ? '#4ADE80' : PATH_COLORS[foundPathIdx % PATH_COLORS.length].border
+          color: isStartOrEnd ? '#166534' : REDUNDANT_PATH_COLORS[foundPathIdx % REDUNDANT_PATH_COLORS.length].bg,
+          border: isStartOrEnd ? '#4ADE80' : REDUNDANT_PATH_COLORS[foundPathIdx % REDUNDANT_PATH_COLORS.length].border
         })
       } else {
         nodes.push(nId)
@@ -703,7 +713,7 @@ export default function App() {
           const colorMappedNodes: { id: string; color: string; border?: string }[] = []
 
           parsedRes.paths.forEach((pObj: any, pathIdx: number) => {
-            const colorCfg = PATH_COLORS[pathIdx % PATH_COLORS.length]
+            const colorCfg = REDUNDANT_PATH_COLORS[pathIdx % REDUNDANT_PATH_COLORS.length]
             
             pObj.path.forEach((nId: string) => {
               const isStartOrEnd = nId === startNode || nId === endNode
@@ -738,7 +748,7 @@ export default function App() {
 
           let bodyText = `Se calcularon rutas alternativas independientes de origen a destino:\n\n`
           parsedRes.paths.forEach((pObj: any, idx: number) => {
-            const colorName = PATH_COLORS[idx % PATH_COLORS.length].name
+            const colorName = REDUNDANT_PATH_COLORS[idx % REDUNDANT_PATH_COLORS.length].name
             bodyText += `• Ruta ${idx + 1} (${colorName}): ${pObj.path.join(' → ')} (costo: ${pObj.cost})\n`
           })
           
@@ -1114,7 +1124,6 @@ export default function App() {
               <div className="random-gen-section" style={{ marginBottom: '10px', borderBottom: '1px solid var(--border)', paddingBottom: '10px' }}>
                 <h5 style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-secondary)', marginBottom: '8px' }}>Generar grafo aleatorio</h5>
                 <div className="param-row">
-                  <label>Cantidad de nodos</label>
                   <div className="input-row" style={{ gap: '8px' }}>
                     <input
                       type="text"
@@ -1122,11 +1131,18 @@ export default function App() {
                       value={nodeCountInput}
                       onChange={e => setNodeCountInput(e.target.value)}
                       onBlur={e => {
-                        const num = Math.max(2, Math.min(15, Number(e.target.value) || 2))
-                        setNodeCountInput(String(num))
+                        const val = e.target.value.trim()
+                        if (val === '') {
+                          setNodeCountInput('')
+                        } else {
+                          const num = Math.max(2, Math.min(15, Number(val) || 5))
+                          setNodeCountInput(String(num))
+                        }
                       }}
+                      placeholder="Cantidad de nodos"
                       className="node-count-input"
                       title="Cantidad de nodos (2-15)"
+                      style={{ width: '100%' }}
                     />
                     <button className="btn-gen" onClick={handleGenerateGraph} style={{ flex: 'none' }}>Generar</button>
                   </div>

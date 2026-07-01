@@ -347,15 +347,40 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({
       if (!fromPos || !toPos || e.from === e.to) continue
 
       // Check if this edge should be highlighted
-      const key = directed ? `${e.from}->${e.to}` : [e.from, e.to].sort().join('-')
-      const reverseKey = directed ? `${e.to}->${e.from}` : undefined
       let edgeColor = getEdgeColor(safeTheme)
       let edgeWidth = 3
-      const hlColor = highlightEdgeSet.get(key) || (reverseKey ? highlightEdgeSet.get(reverseKey) : undefined)
+      let isHighlighted = false
+      let hlColor: string | undefined = undefined
+
+      if (directed) {
+        hlColor = highlightEdgeSet.get(`${e.from}->${e.to}`) || highlightEdgeSet.get(`${e.from}-${e.to}`)
+      } else {
+        const possibleKeys = [
+          `${e.from}->${e.to}`,
+          `${e.to}->${e.from}`,
+          `${e.from}-${e.to}`,
+          `${e.to}-${e.from}`
+        ]
+        for (const k of possibleKeys) {
+          if (highlightEdgeSet.has(k)) {
+            hlColor = highlightEdgeSet.get(k)
+            break
+          }
+        }
+      }
+
       if (hlColor) {
         edgeColor = hlColor
         edgeWidth = 5
+        isHighlighted = true
       }
+
+      // Check if we are in resolution/animation mode (not editable) and there are highlighted edges
+      const isResolutionMode = !editable && highlightEdges && highlightEdges.length > 0
+      const alpha = (isResolutionMode && !isHighlighted) ? 0.25 : 1.0
+
+      ctx.save()
+      ctx.globalAlpha = alpha
 
       const isHovered = hoveredEdgeRef.current?.from === e.from && hoveredEdgeRef.current?.to === e.to
 
@@ -488,6 +513,8 @@ export default forwardRef<GraphEditorHandle, Props>(function GraphEditor({
         ctx.fillStyle = getFontColor(safeTheme)
         ctx.fillText(label, midX, midY)
       }
+
+      ctx.restore()
 
       edgePositions.push({ from: fromPos, to: toPos, fromId: e.from, toId: e.to, weight: e.weight })
     }

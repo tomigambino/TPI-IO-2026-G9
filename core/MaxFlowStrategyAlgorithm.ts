@@ -81,9 +81,27 @@ export class MaxFlowStrategyAlgorithm extends AbstractStrategyAlgorithm implemen
       ? `No se encontraron más caminos de aumento. Flujo máximo: 1 unidad`
       : `No se encontraron más caminos de aumento. Flujo máximo: ${maxFlow} unidades`;
 
+    const flowEdges: string[] = [];
+    const flowNodes = new Set<string>();
+    g.edges().forEach(edge => {
+      const key = `${edge.v}->${edge.w}`;
+      const remaining = residualGraph.edge(edge.v, edge.w) as number;
+      const original = originalCapacities[key] || 0;
+      if (original - remaining > 0) {
+        flowEdges.push(key);
+        flowNodes.add(edge.v);
+        flowNodes.add(edge.w);
+      }
+    });
+    flowNodes.add(source);
+    flowNodes.add(sink);
+
     this.addStep(
       `${resultText}\n[Completado]`,
-      "complete", [], [source, sink], maxFlow
+      "complete",
+      flowEdges,
+      Array.from(flowNodes),
+      maxFlow
     );
 
     return `${maxFlow}`;
